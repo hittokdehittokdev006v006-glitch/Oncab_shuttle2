@@ -68,12 +68,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setPermissions([]);
   };
 
-  const hasPermission = (permission: string) => {
+  const hasPermission = useCallback((permission: string) => {
     if (user?.role?.name === 'admin') return true;
-    return permissions.includes(permission);
-  };
+    if (permissions.includes(permission)) return true;
+    return permissions.includes(`${permission.split('.')[0]}.manage`);
+  }, [permissions, user?.role?.name]);
 
-  const hasRole = (role: string) => user?.role?.name === role;
+  const hasRole = useCallback((role: string) => user?.role?.name === role, [user?.role?.name]);
 
   return (
     <AuthContext.Provider value={{ user, permissions, isLoading, isAuthenticated: !!user, login, logout, hasPermission, hasRole, refreshUser }}>

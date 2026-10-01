@@ -382,6 +382,17 @@ const VALID_VIEWS: View[] = [
   'settings'
 ];
 
+const VIEW_PERMISSIONS: Partial<Record<View, string>> = {
+  users: 'users.read', roles: 'roles.read', drivers: 'drivers.read',
+  vehicles: 'vehicles.read', 'vehicle-docs': 'vehicles.read', routes: 'routes.read',
+  stops: 'routes.read', trips: 'trips.read', 'scheduled-trips': 'schedules.read',
+  passengers: 'passengers.read', bookings: 'bookings.read', passes: 'passes.read',
+  coupons: 'coupons.read', payments: 'payments.read', 'cancelled-tickets': 'bookings.read',
+  refunds: 'refunds.read', 'failed-refunds': 'refunds.read', 'paid-refunds': 'refunds.read',
+  notifications: 'notifications.read', reports: 'reports.read', 'audit-logs': 'audit_logs.read',
+  settings: 'settings.manage',
+};
+
 // ── Get View From Current URL ──────────────────────────────
 
 const getInitialView = (): View => {
@@ -406,7 +417,7 @@ const getInitialView = (): View => {
 // ── Main App Inner ─────────────────────────────────────────
 
 const AppInner: React.FC = () => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, hasPermission } = useAuth();
 
   const [currentView, setCurrentViewState] =
     useState<View>(getInitialView);
@@ -425,9 +436,11 @@ const AppInner: React.FC = () => {
   // ── Change Current View ─────────────────────────────────
 
   const setCurrentView = (view: View) => {
-    setCurrentViewState(view);
+    const permission = VIEW_PERMISSIONS[view];
+    const allowedView = !permission || hasPermission(permission) ? view : 'dashboard';
+    setCurrentViewState(allowedView);
 
-    const routePath = getRoutePath(view);
+    const routePath = getRoutePath(allowedView);
 
     if (window.location.pathname !== routePath) {
       window.history.pushState({}, '', routePath);
@@ -451,11 +464,11 @@ const AppInner: React.FC = () => {
         .trim()
         .toLowerCase();
 
-      if (VALID_VIEWS.includes(path as View)) {
-        setCurrentViewState(path as View);
-      } else {
-        setCurrentViewState('dashboard');
-      }
+      const requestedView = VALID_VIEWS.includes(path as View) ? path as View : 'dashboard';
+      const permission = VIEW_PERMISSIONS[requestedView];
+      const allowedView = !permission || hasPermission(permission) ? requestedView : 'dashboard';
+      setCurrentViewState(allowedView);
+      if (allowedView !== requestedView) window.history.replaceState({}, '', getRoutePath(allowedView));
     };
 
     window.addEventListener('popstate', handlePopState);
@@ -463,7 +476,13 @@ const AppInner: React.FC = () => {
     return () => {
       window.removeEventListener('popstate', handlePopState);
     };
-  }, []);
+  }, [hasPermission]);
+
+  useEffect(() => {
+    if (isLoading || !isAuthenticated) return;
+    const permission = VIEW_PERMISSIONS[currentView];
+    if (permission && !hasPermission(permission)) setCurrentView('dashboard');
+  }, [currentView, hasPermission, isAuthenticated, isLoading]);
 
   // ── Toast Notification ──────────────────────────────────
 
@@ -543,6 +562,9 @@ const AppInner: React.FC = () => {
     );
   }
 
+  const activeViewPermission = VIEW_PERMISSIONS[currentView];
+  const activeView = !activeViewPermission || hasPermission(activeViewPermission) ? currentView : 'dashboard';
+
   // ── Render Current Page ─────────────────────────────────
 
   const renderPage = () => {
@@ -560,7 +582,7 @@ const AppInner: React.FC = () => {
       </React.Suspense>
     );
 
-    switch (currentView) {
+    switch (activeView) {
       case 'dashboard':
         return <DashboardPage />;
 
@@ -779,7 +801,7 @@ const AppInner: React.FC = () => {
         }}
       >
         <Sidebar
-          currentView={currentView}
+          currentView={activeView}
           onSelectView={setCurrentView}
           isOpen={true}
           onClose={() => {}}

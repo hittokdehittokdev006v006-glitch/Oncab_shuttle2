@@ -24,6 +24,7 @@ router.patch('/duty-status', driverAppController.toggleDutyStatus);
 
 // Assigned Trips & Schedule
 router.get('/assigned-trips', driverAppController.getAssignedTrips);
+router.post('/assigned-trips', driverAppController.getAssignedTrips);
 router.get('/my-assignments', busDriverAssignmentController.getMyAssignments);
 router.post('/available-schedules', busDriverAssignmentController.getAvailableSchedules);
 router.post('/accept-assignment', busDriverAssignmentController.acceptAssignment);

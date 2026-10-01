@@ -3,13 +3,13 @@
 const express = require('express');
 const router = express.Router();
 const bookingController = require('../controllers/bookingController');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, requirePermission } = require('../middleware/auth');
 
 router.use(authenticate);
-router.get('/cancelled', bookingController.cancelledList);
-router.get('/', bookingController.list);
-router.get('/:id', bookingController.show);
-router.post('/', bookingController.create);
-router.patch('/:id/cancel', bookingController.cancel);
-router.patch('/:id/payment', bookingController.updatePayment);
+router.get('/cancelled', requirePermission('bookings.read'), bookingController.cancelledList);
+router.get('/', requirePermission('bookings.read'), bookingController.list);
+router.get('/:id', requirePermission('bookings.read'), bookingController.show);
+router.post('/', requirePermission('bookings.manage'), bookingController.create);
+router.patch('/:id/cancel', requirePermission('bookings.manage'), bookingController.cancel);
+router.patch('/:id/payment', requirePermission('bookings.manage'), bookingController.updatePayment);
 module.exports = router;

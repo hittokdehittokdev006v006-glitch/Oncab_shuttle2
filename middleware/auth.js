@@ -3,6 +3,12 @@
 const jwt = require('jsonwebtoken');
 const { AdminUser, Role, Permission } = require('../models');
 
+const hasPermission = (userPermissions, permission) => {
+  if (userPermissions.includes(permission)) return true;
+  const module = permission.split('.')[0];
+  return userPermissions.includes(`${module}.manage`);
+};
+
 /**
  * Verify JWT Access Token middleware
  */
@@ -85,8 +91,8 @@ const requirePermission = (...permissions) => {
       return next();
     }
     const userPerms = req.userPermissions || [];
-    const hasPermission = permissions.every((perm) => userPerms.includes(perm));
-    if (!hasPermission) {
+    const allowed = permissions.every((permission) => hasPermission(userPerms, permission));
+    if (!allowed) {
       return res.status(403).json({
         success: false,
         message: 'Insufficient permissions',

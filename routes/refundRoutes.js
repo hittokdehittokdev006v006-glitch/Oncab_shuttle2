@@ -3,13 +3,13 @@
 const express = require('express');
 const router = express.Router();
 const refundController = require('../controllers/refundController');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, requirePermission } = require('../middleware/auth');
 
 router.use(authenticate);
-router.get('/failed', refundController.failedList);
-router.get('/completed', refundController.completedList);
-router.get('/', refundController.list);
-router.patch('/:id/process', refundController.process);
-router.patch('/:id/retry', refundController.retry);
-router.patch('/:id/mark-failed', refundController.markFailed);
+router.get('/failed', requirePermission('refunds.read'), refundController.failedList);
+router.get('/completed', requirePermission('refunds.read'), refundController.completedList);
+router.get('/', requirePermission('refunds.read'), refundController.list);
+router.patch('/:id/process', requirePermission('refunds.process'), refundController.process);
+router.patch('/:id/retry', requirePermission('refunds.process'), refundController.retry);
+router.patch('/:id/mark-failed', requirePermission('refunds.process'), refundController.markFailed);
 module.exports = router;

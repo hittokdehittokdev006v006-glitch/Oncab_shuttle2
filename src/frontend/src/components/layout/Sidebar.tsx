@@ -32,7 +32,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     title: 'Overview',
     items: [
-      { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: 'dashboard.read' },
     ]
   },
   {
@@ -45,56 +45,56 @@ const NAV_GROUPS: NavGroup[] = [
   {
     title: 'Fleet Management',
     items: [
-      { id: 'drivers', label: 'Drivers', icon: UserRound },
-      { id: 'vehicles', label: 'Vehicles', icon: Truck },
-      { id: 'vehicle-docs', label: 'Vehicle Documents', icon: Package },
+      { id: 'drivers', label: 'Drivers', icon: UserRound, permission: 'drivers.read' },
+      { id: 'vehicles', label: 'Vehicles', icon: Truck, permission: 'vehicles.read' },
+      { id: 'vehicle-docs', label: 'Vehicle Documents', icon: Package, permission: 'vehicles.read' },
     ]
   },
   {
     title: 'Operations',
     items: [
-      { id: 'routes', label: 'Routes', icon: Route },
-      { id: 'stops', label: 'Stops & Stations', icon: MapPin },
-      { id: 'trips', label: 'Trips', icon: Bus },
-      { id: 'scheduled-trips', label: 'Scheduled Trips', icon: CalendarDays },
+      { id: 'routes', label: 'Routes', icon: Route, permission: 'routes.read' },
+      { id: 'stops', label: 'Stops & Stations', icon: MapPin, permission: 'routes.read' },
+      { id: 'trips', label: 'Trips', icon: Bus, permission: 'trips.read' },
+      { id: 'scheduled-trips', label: 'Scheduled Trips', icon: CalendarDays, permission: 'schedules.read' },
     ]
   },
   {
     title: 'Bookings & Revenue',
     items: [
-      { id: 'passengers', label: 'Passengers', icon: UserCheck },
-      { id: 'bookings', label: 'Bookings', icon: Ticket },
-      { id: 'passes', label: 'Passes', icon: Package },
-      { id: 'coupons', label: 'Coupons & Discounts', icon: Tag },
-      { id: 'payments', label: 'Payments', icon: CreditCard },
+      { id: 'passengers', label: 'Passengers', icon: UserCheck, permission: 'passengers.read' },
+      { id: 'bookings', label: 'Bookings', icon: Ticket, permission: 'bookings.read' },
+      { id: 'passes', label: 'Passes', icon: Package, permission: 'passes.read' },
+      { id: 'coupons', label: 'Coupons & Discounts', icon: Tag, permission: 'coupons.read' },
+      { id: 'payments', label: 'Payments', icon: CreditCard, permission: 'payments.read' },
     ]
   },
   {
     title: 'Cancellations & Refunds',
     items: [
-      { id: 'cancelled-tickets', label: 'Cancelled Tickets', icon: FileX },
-      { id: 'refunds', label: 'All Refunds', icon: RefreshCcw },
-      { id: 'failed-refunds', label: 'Failed Refunds', icon: FileX },
-      { id: 'paid-refunds', label: 'Paid Refunds', icon: RefreshCcw },
+      { id: 'cancelled-tickets', label: 'Cancelled Tickets', icon: FileX, permission: 'bookings.read' },
+      { id: 'refunds', label: 'All Refunds', icon: RefreshCcw, permission: 'refunds.read' },
+      { id: 'failed-refunds', label: 'Failed Refunds', icon: FileX, permission: 'refunds.read' },
+      { id: 'paid-refunds', label: 'Paid Refunds', icon: RefreshCcw, permission: 'refunds.read' },
     ]
   },
   {
     title: 'Communications',
     items: [
-      { id: 'notifications', label: 'Notifications', icon: Bell },
+      { id: 'notifications', label: 'Notifications', icon: Bell, permission: 'notifications.read' },
     ]
   },
   {
     title: 'Analytics & Logs',
     items: [
-      { id: 'reports', label: 'Reports & Analytics', icon: BarChart3 },
-      { id: 'audit-logs', label: 'Audit Logs', icon: ClipboardList },
+      { id: 'reports', label: 'Reports & Analytics', icon: BarChart3, permission: 'reports.read' },
+      { id: 'audit-logs', label: 'Audit Logs', icon: ClipboardList, permission: 'audit_logs.read' },
     ]
   },
   {
     title: 'System',
     items: [
-      { id: 'settings', label: 'System Settings', icon: Settings },
+      { id: 'settings', label: 'System Settings', icon: Settings, permission: 'settings.manage' },
     ]
   },
 ];
@@ -108,7 +108,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentView, onSelectView, isOpen, onClose, unreadNotifications = 0 }) => {
-  const { user, logout } = useAuth();
+  const { user, logout, hasPermission } = useAuth();
   const { theme } = useTheme();
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [loggingOut, setLoggingOut] = useState(false);
@@ -140,6 +140,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onSelectView, isO
 
   const isLight = theme === 'light';
   const roleBadgeColor = user?.role?.name === 'admin' ? '#6366f1' : '#10b981';
+  const visibleGroups = NAV_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => !item.permission || hasPermission(item.permission)),
+  })).filter((group) => group.items.length > 0);
 
   return (
     <>
@@ -185,7 +189,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onSelectView, isO
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto py-2 px-2" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(99,102,241,0.2) transparent' }}>
-          {NAV_GROUPS.map((group) => (
+          {visibleGroups.map((group) => (
             <div key={group.title} className="mb-1">
               <button
                 onClick={() => toggleGroup(group.title)}

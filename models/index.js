@@ -6,6 +6,7 @@ const sequelize = require('../config/database');
 const Role = require('./Role');
 const Permission = require('./Permission');
 const AdminUser = require('./AdminUser');
+const CustomerUser = require('./CustomerUser');
 const Driver = require('./Driver');
 const DriverDetail = require('./DriverDetail');
 const Vehicle = require('./Vehicle');
@@ -62,6 +63,8 @@ BusRoute.hasMany(BusStop, { foreignKey: 'route_id', as: 'stops' });
 BusStop.belongsTo(BusRoute, { foreignKey: 'route_id', as: 'route' });
 BusRoute.hasMany(BusSchedule, { foreignKey: 'route_id', as: 'schedules' });
 BusSchedule.belongsTo(BusRoute, { foreignKey: 'route_id', as: 'route' });
+Route.hasMany(BusSchedule, { foreignKey: 'route_id', as: 'bus_schedules' });
+BusSchedule.belongsTo(Route, { foreignKey: 'route_id', as: 'main_route' });
 BusType.hasMany(BusSchedule, { foreignKey: 'bus_type_id', as: 'bus_schedules' });
 BusSchedule.belongsTo(BusType, { foreignKey: 'bus_type_id', as: 'bus_type' });
 BusSchedule.hasMany(BusDriverAssignment, { foreignKey: 'schedule_id', as: 'driverAssignments' });
@@ -131,6 +134,7 @@ module.exports = {
   Role,
   Permission,
   AdminUser,
+  CustomerUser,
   Driver,
   DriverDetail,
   Vehicle,

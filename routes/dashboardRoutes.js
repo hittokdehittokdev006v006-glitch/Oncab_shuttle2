@@ -3,10 +3,10 @@
 const express = require('express');
 const router = express.Router();
 const dashboardController = require('../controllers/dashboardController');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, requirePermission } = require('../middleware/auth');
 
 router.use(authenticate);
-router.get('/stats', dashboardController.stats);
-router.get('/revenue-report', dashboardController.revenueReport);
-router.get('/audit-logs', dashboardController.auditLogs);
+router.get('/stats', requirePermission('dashboard.read'), dashboardController.stats);
+router.get('/revenue-report', requirePermission('reports.read'), dashboardController.revenueReport);
+router.get('/audit-logs', requirePermission('audit_logs.read'), dashboardController.auditLogs);
 module.exports = router;

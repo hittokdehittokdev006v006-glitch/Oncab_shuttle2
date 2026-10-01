@@ -1,11 +1,31 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { 
-  RefreshCw, Search, Calendar, ChevronDown, Download, Info, CheckCircle2, 
-  Clock, AlertCircle, Eye, X, Filter, MapPin, Navigation, UserCheck, 
-  RotateCcw, Ban, User, Truck, ShieldAlert, Plus, Minus
+import {
+  RefreshCw, Search, Calendar, ChevronDown, Download, Info, CheckCircle2,
+  Clock, AlertCircle, Eye, X, Filter, MapPin, Navigation, UserCheck,
+  RotateCcw, Ban, User, Truck, ShieldAlert, Plus, Minus, Edit2
 } from 'lucide-react';
 import { tripsAPI, routesAPI, driversAPI, vehiclesAPI, bookingsAPI } from '../services/api';
 import { Card, Table, Tr, Td, Pagination, Button, LoadingState, ErrorState } from '../components/ui';
+import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
+import L from 'leaflet';
+
+// Fix for default marker icon in Leaflet with React
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
+
+// Custom bus icon
+const createBusIcon = () => {
+  return L.divIcon({
+    className: 'custom-bus-icon',
+    html: `<div style="background-color: #8b5cf6; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">BUS</div>`,
+    iconSize: [50, 30],
+    iconAnchor: [25, 15],
+  });
+};
 
 interface TripsPageProps {
   onNotify: (msg: string, type?: any) => void;
@@ -21,23 +41,22 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ total: 0, pages: 1, limit: 15 });
 
-  // Filters matching Screenshot 1
+  // Filters
   const [searchId, setSearchId] = useState('');
   const [fromDate, setFromDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [toDate, setToDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [fleetPartner, setFleetPartner] = useState('');
   const [driverFilter, setDriverFilter] = useState('');
   const [routeFilter, setRouteFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [quickDate, setQuickDate] = useState('Today');
   const [viewMode, setViewMode] = useState<'expanded' | 'compact'>('expanded');
 
-  // Detailed Modal for Trip Dashboard (Screenshots 2 & 3)
+  // Modal states
   const [infoTrip, setInfoTrip] = useState<any | null>(null);
   const [tripBookings, setTripBookings] = useState<any[]>([]);
   const [loadingBookings, setLoadingBookings] = useState(false);
 
-  // Sub-modals for Trip Actions
+  // Sub-modals
   const [actionModal, setActionModal] = useState<'reschedule' | 'driver' | 'vehicle' | 'capacity' | null>(null);
   const [rescheduleDate, setRescheduleDate] = useState('');
   const [rescheduleTime, setRescheduleTime] = useState('');
@@ -93,99 +112,115 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
     loadDropdowns();
   }, [fetchTrips]);
 
-  // When clicking Info, fetch full details & bookings manifest for this trip
+  // Open trip dashboard with full data
   const handleOpenTripDashboard = async (trip: any) => {
-    setInfoTrip(trip);
     setLoadingBookings(true);
     try {
-      const resp = await bookingsAPI.list({ trip_id: trip.id, limit: 50 });
-      setTripBookings(resp.data.data || []);
-    } catch {
+      const tripResp = await tripsAPI.show(trip.id);
+      setInfoTrip(tripResp.data.data);
+
+      const bookingResp = await bookingsAPI.list({ trip_id: trip.id, limit: 100 });
+      setTripBookings(bookingResp.data.data || []);
+    } catch (err: any) {
+      onNotify(err.response?.data?.message || 'Failed to load trip details', 'error');
+      setInfoTrip(trip);
       setTripBookings([]);
     } finally {
       setLoadingBookings(false);
     }
   };
 
-  // Trip action handlers
+  // Refresh trip data
+  const handleRefreshTrip = async () => {
+    if (!infoTrip) return;
+    setLoadingBookings(true);
+    try {
+      const tripResp = await tripsAPI.show(infoTrip.id);
+      setInfoTrip(tripResp.data.data);
+
+      const bookingResp = await bookingsAPI.list({ trip_id: infoTrip.id, limit: 100 });
+      setTripBookings(bookingResp.data.data || []);
+      onNotify('Trip data refreshed successfully');
+    } catch {
+      onNotify('Failed to refresh trip data', 'error');
+    } finally {
+      setLoadingBookings(false);
+    }
+  };
+
+  // Status change
   const handleStatusChange = async (tripId: number, newStatus: string) => {
     try {
       await tripsAPI.updateStatus(tripId, newStatus);
       onNotify(`Trip marked as ${newStatus}`);
       if (infoTrip && infoTrip.id === tripId) {
-        setInfoTrip((prev: any) => ({ ...prev, status: newStatus }));
+        const updatedTrip = await tripsAPI.show(tripId);
+        setInfoTrip(updatedTrip.data.data);
       }
       fetchTrips();
-    } catch {
-      onNotify('Failed to update trip status', 'error');
+    } catch (err: any) {
+      onNotify(err.response?.data?.message || 'Failed to update trip status', 'error');
     }
   };
 
+  // Reschedule trip
   const handleApplyReschedule = async () => {
-    if (!infoTrip || !rescheduleTime) return;
+    if (!infoTrip) return;
     setUpdatingAction(true);
     try {
       await tripsAPI.update(infoTrip.id, {
         trip_date: rescheduleDate || infoTrip.trip_date,
-        departure_time: rescheduleTime,
+        departure_time: rescheduleTime || infoTrip.departure_time,
       });
       onNotify('Trip rescheduled successfully');
-      setInfoTrip((prev: any) => ({
-        ...prev,
-        trip_date: rescheduleDate || infoTrip.trip_date,
-        departure_time: rescheduleTime,
-      }));
+      const updatedTrip = await tripsAPI.show(infoTrip.id);
+      setInfoTrip(updatedTrip.data.data);
       setActionModal(null);
       fetchTrips();
-    } catch {
-      onNotify('Failed to reschedule trip', 'error');
+    } catch (err: any) {
+      onNotify(err.response?.data?.message || 'Failed to reschedule trip', 'error');
     } finally {
       setUpdatingAction(false);
     }
   };
 
+  // Change driver
   const handleApplyDriver = async () => {
     if (!infoTrip || !selectedNewDriver) return;
     setUpdatingAction(true);
     try {
       await tripsAPI.assignDriver(infoTrip.id, parseInt(selectedNewDriver));
       onNotify('Driver reassigned successfully');
-      const foundDriver = drivers.find(d => d.id === parseInt(selectedNewDriver));
-      setInfoTrip((prev: any) => ({
-        ...prev,
-        driver_id: parseInt(selectedNewDriver),
-        driver: foundDriver,
-      }));
+      const updatedTrip = await tripsAPI.show(infoTrip.id);
+      setInfoTrip(updatedTrip.data.data);
       setActionModal(null);
       fetchTrips();
-    } catch {
-      onNotify('Failed to assign driver', 'error');
+    } catch (err: any) {
+      onNotify(err.response?.data?.message || 'Failed to assign driver', 'error');
     } finally {
       setUpdatingAction(false);
     }
   };
 
+  // Change vehicle
   const handleApplyVehicle = async () => {
     if (!infoTrip || !selectedNewVehicle) return;
     setUpdatingAction(true);
     try {
       await tripsAPI.assignVehicle(infoTrip.id, parseInt(selectedNewVehicle));
       onNotify('Vehicle reassigned successfully');
-      const foundVehicle = vehicles.find(v => v.id === parseInt(selectedNewVehicle));
-      setInfoTrip((prev: any) => ({
-        ...prev,
-        vehicle_id: parseInt(selectedNewVehicle),
-        vehicle: foundVehicle,
-      }));
+      const updatedTrip = await tripsAPI.show(infoTrip.id);
+      setInfoTrip(updatedTrip.data.data);
       setActionModal(null);
       fetchTrips();
-    } catch {
-      onNotify('Failed to assign vehicle', 'error');
+    } catch (err: any) {
+      onNotify(err.response?.data?.message || 'Failed to assign vehicle', 'error');
     } finally {
       setUpdatingAction(false);
     }
   };
 
+  // Change capacity
   const handleApplyCapacity = async () => {
     if (!infoTrip || !newCapacity) return;
     setUpdatingAction(true);
@@ -194,20 +229,18 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
         seat_capacity: parseInt(newCapacity),
       });
       onNotify(`Seat capacity updated to ${newCapacity}`);
-      setInfoTrip((prev: any) => ({
-        ...prev,
-        seat_capacity: parseInt(newCapacity),
-      }));
+      const updatedTrip = await tripsAPI.show(infoTrip.id);
+      setInfoTrip(updatedTrip.data.data);
       setActionModal(null);
       fetchTrips();
-    } catch {
-      onNotify('Failed to update capacity', 'error');
+    } catch (err: any) {
+      onNotify(err.response?.data?.message || 'Failed to update capacity', 'error');
     } finally {
       setUpdatingAction(false);
     }
   };
 
-  // Quick Date Filter Pills
+  // Quick date filter
   const handleQuickDate = (type: string) => {
     setQuickDate(type);
     const today = new Date();
@@ -251,7 +284,6 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
     setSearchId('');
     setFromDate('');
     setToDate('');
-    setFleetPartner('');
     setDriverFilter('');
     setRouteFilter('');
     setStatusFilter('');
@@ -290,27 +322,29 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
     onNotify('Trips exported to CSV successfully');
   };
 
-  // Metrics calculation
+  // Calculate metrics from real data
   const totalTripsCount = pagination.total || trips.length;
   const uniqueVehiclesCount = useMemo(() => {
     const vSet = new Set(trips.map(t => t.vehicle_id).filter(Boolean));
-    return vSet.size || (trips.length > 0 ? Math.min(trips.length, 149) : 149);
+    return vSet.size;
   }, [trips]);
 
   const totalSeatsBooked = trips.reduce((acc, t) => acc + (t.booked_seats || 0), 0);
+  const totalCapacity = trips.reduce((acc, t) => acc + (t.seat_capacity || 0), 0);
+  const fillRate = totalCapacity > 0 ? ((totalSeatsBooked / totalCapacity) * 100).toFixed(2) : '0.00';
   const avgFare = 80.63;
-  const grossRevenue = totalSeatsBooked > 0 ? (totalSeatsBooked * avgFare * 12).toFixed(2) : '4,47,517.48';
-  const gstAmount = totalSeatsBooked > 0 ? (parseFloat(grossRevenue.replace(/,/g, '')) * 0.05).toFixed(2) : '21,306.76';
-  const netRevenue = totalSeatsBooked > 0 ? (parseFloat(grossRevenue.replace(/,/g, '')) - parseFloat(gstAmount.replace(/,/g, ''))).toFixed(2) : '4,26,210.72';
+  const grossRevenue = (totalSeatsBooked * avgFare).toFixed(2);
+  const gstAmount = (parseFloat(grossRevenue) * 0.05).toFixed(2);
+  const netRevenue = (parseFloat(grossRevenue) - parseFloat(gstAmount)).toFixed(2);
 
   return (
     <div className="space-y-4">
-      {/* ── Top Bar Title ── */}
+      {/* Top Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
         <div>
           <h2 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Trips</h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            <span className="font-semibold text-slate-700 dark:text-slate-300">{totalTripsCount} trips</span> • <span className="font-semibold text-slate-700 dark:text-slate-300">{uniqueVehiclesCount} vehicles</span> (vehicles counted from current page of {pagination.limit})
+            <span className="font-semibold text-slate-700 dark:text-slate-300">{totalTripsCount} trips</span> • <span className="font-semibold text-slate-700 dark:text-slate-300">{uniqueVehiclesCount} vehicles</span>
           </p>
         </div>
         <button
@@ -322,14 +356,11 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
         </button>
       </div>
 
-      {/* ── Filters Section ── */}
+      {/* Filters */}
       <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
-        {/* Row 1: Inputs */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2.5 items-end">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2.5 items-end">
           <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1">
-              SEARCH ID
-            </label>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1">SEARCH</label>
             <input
               type="text"
               placeholder="Trip / Route / Driver"
@@ -340,9 +371,7 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
           </div>
 
           <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1">
-              FROM
-            </label>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1">FROM</label>
             <input
               type="date"
               value={fromDate}
@@ -352,9 +381,7 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
           </div>
 
           <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1">
-              TO
-            </label>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1">TO</label>
             <input
               type="date"
               value={toDate}
@@ -364,25 +391,7 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
           </div>
 
           <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1">
-              FLEET PARTNER
-            </label>
-            <select
-              value={fleetPartner}
-              onChange={(e) => setFleetPartner(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
-            >
-              <option value="">All fleet partners</option>
-              <option value="FP001">FP001 (Main Operator)</option>
-              <option value="FP002">FP002 (City Shuttle)</option>
-              <option value="FP003">FP003 (Express Fleet)</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1">
-              DRIVER
-            </label>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1">DRIVER</label>
             <select
               value={driverFilter}
               onChange={(e) => setDriverFilter(e.target.value)}
@@ -390,15 +399,13 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
             >
               <option value="">All drivers</option>
               {drivers.map(d => (
-                <option key={d.id} value={d.id}>{d.name} ({d.driver_user_id || `D-${d.id}`})</option>
+                <option key={d.id} value={d.id}>{d.name}</option>
               ))}
             </select>
           </div>
 
           <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1">
-              ROUTE
-            </label>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1">ROUTE</label>
             <select
               value={routeFilter}
               onChange={(e) => setRouteFilter(e.target.value)}
@@ -406,49 +413,28 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
             >
               <option value="">All routes</option>
               {routes.map(r => (
-                <option key={r.id} value={r.id}>{r.route_code || `R${r.id}`} ({r.route_name})</option>
+                <option key={r.id} value={r.id}>{r.route_name}</option>
               ))}
             </select>
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <div className="flex-1">
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1">
-                STATUS
-              </label>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
-              >
-                <option value="">Scheduled, Resche... 5</option>
-                <option value="Scheduled">Scheduled</option>
-                <option value="Active">Running Active</option>
-                <option value="Completed">Completed</option>
-                <option value="Cancelled">Cancelled</option>
-                <option value="Delayed">Delayed</option>
-              </select>
-            </div>
-            <div className="flex items-center gap-1 pt-4">
-              <button
-                type="button"
-                onClick={handleClearFilters}
-                className="px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              >
-                Clear
-              </button>
-              <button
-                type="button"
-                onClick={() => { setPage(1); fetchTrips(); }}
-                className="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-[#0c2e59] hover:bg-[#082040] text-white shadow-sm transition-colors"
-              >
-                Search
-              </button>
-            </div>
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1">STATUS</label>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+            >
+              <option value="">All statuses</option>
+              <option value="Scheduled">Scheduled</option>
+              <option value="Active">Active</option>
+              <option value="Completed">Completed</option>
+              <option value="Cancelled">Cancelled</option>
+              <option value="Delayed">Delayed</option>
+            </select>
           </div>
         </div>
 
-        {/* Row 2: Quick date chips + Export CSV */}
         <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 mr-1">Quick:</span>
@@ -470,159 +456,71 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
 
           <div className="flex items-center gap-2">
             <button
+              onClick={handleClearFilters}
+              className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            >
+              Clear
+            </button>
+            <button
+              onClick={() => { setPage(1); fetchTrips(); }}
+              className="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-[#0c2e59] hover:bg-[#082040] text-white shadow-sm transition-colors"
+            >
+              Search
+            </button>
+            <button
               onClick={handleExportCSV}
               className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all"
             >
               <Download size={13} />
               Export CSV
-              <ChevronDown size={12} className="text-slate-400" />
             </button>
           </div>
         </div>
       </div>
 
-      {/* ── Revenue Snapshot ── */}
+      {/* Revenue Snapshot */}
       <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
           <div>
-            <span className="text-[10px] font-bold tracking-wider text-slate-500 dark:text-slate-400 uppercase">
-              REVENUE SNAPSHOT
-            </span>
+            <span className="text-[10px] font-bold tracking-wider text-slate-500 dark:text-slate-400 uppercase">REVENUE SNAPSHOT</span>
             <h3 className="text-sm font-bold text-slate-900 dark:text-white">Fleet Revenue Brief</h3>
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
-              Trip-filter aware
-            </span>
-            <button
-              onClick={() => setViewMode('compact')}
-              className={`px-2.5 py-0.5 rounded-full text-[11px] font-medium border transition-all ${
-                viewMode === 'compact'
-                  ? 'bg-slate-800 text-white border-slate-800 dark:bg-slate-700'
-                  : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-              }`}
-            >
-              Compact view
-            </button>
-            <button
-              onClick={() => setViewMode('expanded')}
-              className={`px-2.5 py-0.5 rounded-full text-[11px] font-medium border transition-all ${
-                viewMode === 'expanded'
-                  ? 'bg-[#0c2e59] text-white border-[#0c2e59]'
-                  : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-              }`}
-            >
-              Expanded view
-            </button>
           </div>
         </div>
 
-        {/* Metric Cards Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2.5">
           <div className="p-3 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/60">
-            <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              AVG FARE / SEAT
-            </div>
-            <div className="text-base font-bold text-slate-900 dark:text-white mt-1">₹80.63</div>
-            <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-              Average realised revenue per...
-            </div>
+            <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">TOTAL TRIPS</div>
+            <div className="text-base font-bold text-slate-900 dark:text-white mt-1">{totalTripsCount}</div>
           </div>
 
           <div className="p-3 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/60">
-            <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              TOTAL REVENUE INCL GST
-            </div>
-            <div className="text-base font-bold text-slate-900 dark:text-white mt-1">₹{grossRevenue}</div>
-            <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-              Gross revenue for the filtered...
-            </div>
+            <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">VEHICLES</div>
+            <div className="text-base font-bold text-slate-900 dark:text-white mt-1">{uniqueVehiclesCount}</div>
           </div>
 
           <div className="p-3 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/60">
-            <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              PROMO DISCOUNTS
-            </div>
-            <div className="text-base font-bold text-slate-900 dark:text-white mt-1">₹0</div>
-            <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-              Discount impact across confirme...
-            </div>
+            <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">SEATS BOOKED</div>
+            <div className="text-base font-bold text-slate-900 dark:text-white mt-1">{totalSeatsBooked}</div>
           </div>
 
           <div className="p-3 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/60">
-            <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              REALISED REVENUE INCL GST
-            </div>
-            <div className="text-base font-bold text-slate-900 dark:text-white mt-1">₹{grossRevenue}</div>
-            <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-              Filtered using trip date plus rout...
-            </div>
+            <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">TOTAL CAPACITY</div>
+            <div className="text-base font-bold text-slate-900 dark:text-white mt-1">{totalCapacity}</div>
           </div>
 
           <div className="p-3 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/60">
-            <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              GST
-            </div>
-            <div className="text-base font-bold text-slate-900 dark:text-white mt-1">₹{gstAmount}</div>
-            <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-              Total GST included in the filtered...
-            </div>
+            <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">FILL RATE</div>
+            <div className="text-base font-bold text-slate-900 dark:text-white mt-1">{fillRate}%</div>
           </div>
 
           <div className="p-3 rounded-xl bg-blue-50/60 dark:bg-blue-950/30 border-2 border-blue-500 dark:border-blue-400 shadow-sm">
-            <div className="text-[10px] font-bold text-blue-700 dark:text-blue-300 uppercase tracking-wider">
-              NET REALISED REVENUE
-            </div>
+            <div className="text-[10px] font-bold text-blue-700 dark:text-blue-300 uppercase tracking-wider">NET REVENUE</div>
             <div className="text-base font-bold text-blue-900 dark:text-blue-200 mt-1">₹{netRevenue}</div>
-            <div className="text-[10px] text-blue-600 dark:text-blue-400 truncate mt-0.5">
-              Net realised after GST separatio...
-            </div>
           </div>
-
-          <div className="p-3 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/60">
-            <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              TOTAL TRIPS
-            </div>
-            <div className="text-base font-bold text-slate-900 dark:text-white mt-1">{totalTripsCount}</div>
-            <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-              Total non-cancelled trips...
-            </div>
-          </div>
-        </div>
-
-        {/* Extra Capacity Metrics from Screenshot */}
-        {viewMode === 'expanded' && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
-            <div className="p-2.5 rounded-xl bg-slate-50/50 dark:bg-slate-800/30 border border-slate-200/70 dark:border-slate-700/50">
-              <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">TOTAL VEHICLES</div>
-              <div className="text-sm font-bold text-slate-900 dark:text-white mt-0.5">{uniqueVehiclesCount}</div>
-              <div className="text-[9px] text-slate-400">Distinct vehicles across trips</div>
-            </div>
-            <div className="p-2.5 rounded-xl bg-slate-50/50 dark:bg-slate-800/30 border border-slate-200/70 dark:border-slate-700/50">
-              <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">CAPACITY</div>
-              <div className="text-sm font-bold text-slate-900 dark:text-white mt-0.5">5,551 / 9,903</div>
-              <div className="text-[9px] text-slate-400">5,551 seats filled of total capacity</div>
-            </div>
-            <div className="p-2.5 rounded-xl bg-slate-50/50 dark:bg-slate-800/30 border border-slate-200/70 dark:border-slate-700/50">
-              <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">FILL RATE</div>
-              <div className="text-sm font-bold text-slate-900 dark:text-white mt-0.5">56.05%</div>
-              <div className="text-[9px] text-slate-400">Filled seats as a percentage of total</div>
-            </div>
-            <div className="p-2.5 rounded-xl bg-slate-50/50 dark:bg-slate-800/30 border border-slate-200/70 dark:border-slate-700/50">
-              <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">MORNING FILL RATE</div>
-              <div className="text-sm font-bold text-slate-900 dark:text-white mt-0.5">89.32%</div>
-              <div className="text-[9px] text-slate-400">Trips before 14:00</div>
-            </div>
-          </div>
-        )}
-
-        <div className="text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-lg border border-slate-200/70 dark:border-slate-700/50">
-          Revenue and trip metrics use backend summaries for the active filters so bookings, trips, seats, capacity, and revenue stay aligned with admin dashboards.
         </div>
       </div>
 
-      {/* ── Trips Table ── */}
+      {/* Trips Table */}
       <Card padding={false}>
         {error ? (
           <ErrorState message={error} onRetry={fetchTrips} />
@@ -630,107 +528,65 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
           <>
             <Table
               headers={[
-                'TRIP ⇅',
-                'ROUTE ⇅',
-                'DRIVER ⇅',
-                'DATE & TIME ⇅',
-                'STATUS ⇅',
-                'PUNCTUALITY',
-                'BOOKED / LOCAL CAP.',
-                'VEHICLE NO. ⇅',
-                'FLEET PARTNER ⇅',
-                'CREATED ⇅',
+                'TRIP',
+                'ROUTE',
+                'DRIVER',
+                'DATE & TIME',
+                'STATUS',
+                'BOOKED / CAPACITY',
+                'VEHICLE',
                 'ACTIONS',
               ]}
               loading={loading}
               empty={!loading && trips.length === 0}
               emptyMessage="No trips match the selected filters"
             >
-              {trips.map((trip, idx) => {
-                const capacity = trip.seat_capacity || 25;
-                const booked = trip.booked_seats || (idx % 2 === 0 ? 19 : 24);
+              {trips.map((trip) => {
+                const capacity = trip.seat_capacity || 40;
+                const booked = trip.booked_seats || 0;
                 const pct = Math.min(100, Math.round((booked / capacity) * 100));
-
-                const isCompleted = trip.status === 'Completed' || idx % 2 === 0;
-                const statusName = trip.status || (isCompleted ? 'COMPLETED' : 'SCHEDULED');
-                const fleetPartnerCode = trip.fleet_partner || (idx % 2 === 0 ? 'FP002' : 'FP001');
-
-                const punctualityStart = idx % 2 === 0 ? 'ON TIME' : '24M LATE';
-                const punctualityFinish = idx % 2 === 0 ? '24M EARLY' : 'ON TIME';
 
                 return (
                   <Tr key={trip.id}>
                     <Td className="font-mono text-xs font-semibold text-slate-900 dark:text-white">
-                      #{trip.schedule_code ? trip.schedule_code.slice(-6).toUpperCase() : `T${trip.id}CK`}
+                      #{trip.schedule_code || `T${trip.id}`}
                     </Td>
 
                     <Td className="text-xs">
                       {trip.route ? (
                         <div>
                           <span className="font-semibold text-slate-800 dark:text-slate-200">
-                            {trip.route.route_code || `R00${trip.route_id}`}
-                          </span>{' '}
-                          <span className="text-slate-600 dark:text-slate-400">
-                            ({trip.route.route_name || `${trip.route.origin_city}-${trip.route.destination_city}`})
+                            {trip.route.route_name}
                           </span>
                         </div>
                       ) : (
-                        <span className="text-slate-400">R003 (Joka-Kadampukur)</span>
+                        <span className="text-slate-400">No route</span>
                       )}
                     </Td>
 
                     <Td className="text-xs font-medium text-slate-800 dark:text-slate-200">
-                      <div className="flex items-center gap-1">
-                        <span>{trip.driver?.name?.toUpperCase() || (idx % 2 === 0 ? 'KRISHNA SAH' : 'MD SALIM')}</span>
-                        <span className="text-[11px] font-mono text-slate-500">
-                          ({trip.driver?.driver_user_id || (idx % 2 === 0 ? 'D324ZT' : 'DUDYH6')})
-                        </span>
-                        <Info size={11} className="text-amber-500 cursor-pointer" />
-                      </div>
+                      {trip.driver?.name || 'Unassigned'}
                     </Td>
 
                     <Td className="text-xs font-mono text-slate-700 dark:text-slate-300">
-                      <div>{trip.trip_date || fromDate || '2026-09-29'}</div>
-                      <div className="text-slate-500 text-[11px]">{trip.departure_time?.slice(0, 5) || '06:55'}</div>
+                      <div>{trip.trip_date || '-'}</div>
+                      <div className="text-slate-500 text-[11px]">{trip.departure_time?.slice(0, 5) || '-'}</div>
                     </Td>
 
                     <Td>
                       <span
                         className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
-                          statusName === 'COMPLETED' || statusName === 'Completed'
+                          trip.status === 'Completed'
                             ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800'
-                            : statusName === 'Active' || statusName === 'ACTIVE'
+                            : trip.status === 'Active'
                             ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400 border border-amber-300 dark:border-amber-800'
-                            : statusName === 'Cancelled' || statusName === 'CANCELLED'
+                            : trip.status === 'Cancelled'
                             ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400 border border-rose-300 dark:border-rose-800'
                             : 'bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-400 border border-blue-300 dark:border-blue-800'
                         }`}
                       >
-                        {statusName}
+                        {trip.status || 'Scheduled'}
                       </span>
-                    </Td>
-
-                    <Td className="text-[11px] font-mono">
-                      <div className="flex items-center gap-1.5 mb-0.5">
-                        <span className="text-slate-400 text-[10px]">Start</span>
-                        <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                          punctualityStart === 'ON TIME'
-                            ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400'
-                            : 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
-                        }`}>
-                          {punctualityStart}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-slate-400 text-[10px]">Finish</span>
-                        <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                          punctualityFinish === 'ON TIME' || punctualityFinish === '24M EARLY'
-                            ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400'
-                            : 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
-                        }`}>
-                          {punctualityFinish}
-                        </span>
-                      </div>
                     </Td>
 
                     <Td>
@@ -748,16 +604,7 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
                     </Td>
 
                     <Td className="text-xs font-mono font-semibold text-slate-800 dark:text-slate-200">
-                      {trip.vehicle?.registration_number || (idx % 2 === 0 ? 'WB19L9772' : 'WB25M1392')}
-                    </Td>
-
-                    <Td className="text-xs font-mono text-slate-600 dark:text-slate-400">
-                      {fleetPartnerCode}
-                    </Td>
-
-                    <Td className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
-                      <div>2026-09-27</div>
-                      <div className="text-[10px] text-slate-400">03:11</div>
+                      {trip.vehicle?.registration_number || 'Unassigned'}
                     </Td>
 
                     <Td>
@@ -766,7 +613,8 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
                         onClick={() => handleOpenTripDashboard(trip)}
                         className="px-3 py-1 rounded-md border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 shadow-sm transition-colors"
                       >
-                        Info
+                        <Info size={14} className="inline mr-1" />
+                        Details
                       </button>
                     </Td>
                   </Tr>
@@ -785,37 +633,39 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
         )}
       </Card>
 
-      {/* ─────────────────────────────────────────────────────────────
-          Trip Dashboard Modal (Matching Screenshots 2 & 3)
-      ───────────────────────────────────────────────────────────── */}
+      {/* Trip Dashboard Modal */}
       {infoTrip && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/75 backdrop-blur-sm overflow-y-auto">
-          <div className="relative w-full max-w-4xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
-            
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-sm overflow-y-auto">
+          <div className="relative w-full max-w-5xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh] animate-in fade-in zoom-in duration-200">
+
             {/* Modal Header */}
             <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-start justify-between gap-4">
               <div>
                 <div className="flex items-center gap-2.5 flex-wrap">
                   <h2 className="text-xl font-bold text-slate-900 dark:text-white">Trip Dashboard</h2>
                   <span className="font-mono text-xs px-2 py-0.5 rounded border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold">
-                    #{infoTrip.schedule_code ? infoTrip.schedule_code.slice(-6).toUpperCase() : 'TGNKF4'}
+                    #{infoTrip.schedule_code || `T${infoTrip.id}`}
                   </span>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-600 text-white uppercase tracking-wider">
-                    {infoTrip.status === 'Active' ? 'TRIP STARTED' : (infoTrip.status || 'TRIP STARTED')}
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
+                    infoTrip.status === 'Active' ? 'bg-amber-600 text-white' :
+                    infoTrip.status === 'Completed' ? 'bg-emerald-600 text-white' :
+                    infoTrip.status === 'Cancelled' ? 'bg-rose-600 text-white' :
+                    'bg-blue-600 text-white'
+                  }`}>
+                    {infoTrip.status || 'SCHEDULED'}
                   </span>
                 </div>
                 <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-                  <b>{infoTrip.route?.route_code || 'R003'}</b> • {infoTrip.route?.route_name || 'Joka-Kadampukur'} • {infoTrip.trip_date || '2026-09-29'} {infoTrip.departure_time || '08:15'}
+                  <b>{infoTrip.route?.route_name || 'No route'}</b> • {infoTrip.trip_date || '-'} {infoTrip.departure_time || '-'}
                 </div>
                 <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Driver {infoTrip.driver?.name || 'Abhijit roy'} • {infoTrip.driver?.mobile || '8420906181'} • ID {infoTrip.driver?.driver_user_id || 'DJU2PL'} • Vehicle {infoTrip.vehicle?.registration_number || 'WB05A3351'}
+                  Driver: {infoTrip.driver?.name || 'Unassigned'} • Vehicle: {infoTrip.vehicle?.registration_number || 'Unassigned'}
                 </div>
               </div>
 
-              {/* Action Buttons Right Top */}
+              {/* Action Buttons */}
               <div className="flex flex-col items-end gap-2">
                 <div className="flex items-center gap-2">
-                  <div className="text-[10px] font-bold uppercase text-slate-400 mr-1 hidden sm:block">TRIP ACTIONS</div>
                   <button
                     onClick={() => {
                       setRescheduleDate(infoTrip.trip_date || '');
@@ -824,6 +674,7 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
                     }}
                     className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#0c2e59] hover:bg-[#082040] text-white shadow-sm transition-colors"
                   >
+                    <Calendar size={14} className="inline mr-1" />
                     Reschedule
                   </button>
                   <button
@@ -833,6 +684,7 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
                     }}
                     className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white shadow-sm transition-colors"
                   >
+                    <UserCheck size={14} className="inline mr-1" />
                     Change Driver
                   </button>
                   <button
@@ -842,6 +694,7 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
                     }}
                     className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-purple-700 hover:bg-purple-800 text-white shadow-sm transition-colors"
                   >
+                    <Truck size={14} className="inline mr-1" />
                     Change Vehicle
                   </button>
                   <button
@@ -852,36 +705,45 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
                   </button>
                 </div>
 
-                {/* TRIP CONTROLS */}
+                {/* Trip Controls */}
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold uppercase text-slate-400 mr-1 hidden sm:block">TRIP CONTROLS</span>
                   <button
                     onClick={() => handleStatusChange(infoTrip.id, 'Scheduled')}
                     className="px-3 py-1 text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
-                    Reset Status
+                    Reset
+                  </button>
+                  <button
+                    onClick={() => handleStatusChange(infoTrip.id, 'Active')}
+                    className="px-3 py-1 text-xs font-semibold rounded-lg bg-amber-600 hover:bg-amber-700 text-white"
+                  >
+                    Start
+                  </button>
+                  <button
+                    onClick={() => handleStatusChange(infoTrip.id, 'Completed')}
+                    className="px-3 py-1 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white"
+                  >
+                    Complete
                   </button>
                   <button
                     onClick={() => handleStatusChange(infoTrip.id, 'Cancelled')}
                     className="px-3 py-1 text-xs font-semibold rounded-lg bg-rose-600 hover:bg-rose-700 text-white"
                   >
-                    Cancel Trip
+                    Cancel
                   </button>
                 </div>
               </div>
             </div>
 
-            {/* Modal Body with Map & Details */}
+            {/* Modal Body */}
             <div className="overflow-y-auto p-4 sm:p-5 space-y-5 flex-1">
-              {/* Grid: Left Info & Right Interactive Route Map */}
+              {/* Trip Info Grid */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
-                
-                {/* Left Side: Route, Driver, Schedule, Punctuality, Seats, Span */}
                 <div className="space-y-3.5 text-xs">
                   <div>
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">ROUTE</span>
                     <div className="text-sm font-bold text-slate-900 dark:text-white mt-0.5">
-                      {infoTrip.route?.route_code || 'R003'} ({infoTrip.route?.route_name || 'Joka-Kadampukur'})
+                      {infoTrip.route?.route_name || 'No route assigned'}
                     </div>
                   </div>
 
@@ -889,13 +751,13 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
                     <div>
                       <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">DRIVER</span>
                       <div className="font-semibold text-slate-800 dark:text-slate-200 mt-0.5">
-                        {infoTrip.driver?.name || 'Abhijit roy'} • {infoTrip.driver?.mobile || '8420906181'} • ID {infoTrip.driver?.driver_user_id || 'DJU2PL'}
+                        {infoTrip.driver?.name || 'Unassigned'}
                       </div>
                     </div>
                     <div>
                       <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">VEHICLE</span>
                       <div className="font-mono font-semibold text-slate-800 dark:text-slate-200 mt-0.5">
-                        {infoTrip.vehicle?.registration_number || 'WB05A3351'}
+                        {infoTrip.vehicle?.registration_number || 'Unassigned'}
                       </div>
                     </div>
                   </div>
@@ -904,31 +766,13 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
                     <div>
                       <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">SCHEDULE</span>
                       <div className="font-mono font-medium text-slate-800 dark:text-slate-200 mt-0.5">
-                        {infoTrip.trip_date || '2026-09-29'} {infoTrip.departure_time || '08:15'}
+                        {infoTrip.trip_date || '-'} {infoTrip.departure_time || '-'}
                       </div>
                     </div>
                     <div>
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">STATUS</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">CAPACITY</span>
                       <div className="font-semibold text-slate-900 dark:text-white mt-0.5">
-                        {infoTrip.status === 'Active' ? 'Trip Started' : (infoTrip.status || 'Trip Started')}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">PUNCTUALITY</span>
-                    <div className="flex items-center gap-3 mt-1 text-[11px] font-mono">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-slate-500">START</span>
-                        <span className="px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 font-bold">
-                          On time
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-slate-500">NOW</span>
-                        <span className="px-1.5 py-0.5 rounded bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 font-bold">
-                          22m late
-                        </span>
+                        {infoTrip.booked_seats || 0}/{infoTrip.seat_capacity || 0}
                       </div>
                     </div>
                   </div>
@@ -936,121 +780,82 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
                   <div>
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">SEATS</span>
                     <div className="font-semibold text-slate-800 dark:text-slate-200 mt-0.5 font-mono">
-                      {infoTrip.booked_seats || 24}/{infoTrip.seat_capacity || 25} booked • 1 available
+                      {infoTrip.booked_seats || 0} booked • {infoTrip.seat_capacity || 0} total
                     </div>
                   </div>
 
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">ROUTE SPAN</span>
-                    <div className="font-medium text-slate-800 dark:text-slate-200 mt-0.5">
-                      {infoTrip.route?.origin_city || 'Joka Tram Depot-Parking'} — {infoTrip.route?.destination_city || 'Kadampukur'}
-                    </div>
-                  </div>
-
-                  {/* Live Tracking Status Bar */}
                   <div className="pt-2">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">LIVE TRACKING</span>
-                    <div className="flex items-center gap-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                      Active (0 km/h) <span className="text-slate-500 font-normal">Next Stop: Ecospace</span>
-                    </div>
-
-                    <div className="flex items-center gap-2 mt-2.5">
+                    <div className="flex items-center gap-2">
                       <button
-                        onClick={() => handleStatusChange(infoTrip.id, 'Completed')}
-                        className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white"
+                        onClick={handleRefreshTrip}
+                        disabled={loadingBookings}
+                        className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
                       >
-                        Mark Completed
-                      </button>
-                      <button
-                        onClick={() => onNotify('Showing route stops in modal')}
-                        className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
-                      >
-                        Show Stops
-                      </button>
-                      <button
-                        onClick={() => handleOpenTripDashboard(infoTrip)}
-                        className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
-                      >
-                        Refresh
+                        <RefreshCw size={14} className={`inline mr-1 ${loadingBookings ? 'animate-spin' : ''}`} />
+                        {loadingBookings ? 'Refreshing...' : 'Refresh'}
                       </button>
                     </div>
                   </div>
                 </div>
 
-                {/* Right Side: Map Canvas Simulation (Screenshots 2 & 3) */}
-                <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-slate-100 dark:bg-slate-800/60 relative">
-                  <div className="relative h-64 sm:h-72 w-full bg-[#cad2d3] dark:bg-[#1a2332] overflow-hidden flex items-center justify-center">
-                    {/* Simulated SVG Route Map */}
-                    <svg className="w-full h-full opacity-80" viewBox="0 0 500 300">
-                      {/* Grid / Roads */}
-                      <path d="M 50 150 Q 200 80 450 120" stroke="#94a3b8" strokeWidth="6" fill="none" strokeLinecap="round" />
-                      <path d="M 80 260 C 150 200, 220 180, 420 80" stroke="#6366f1" strokeWidth="4" fill="none" strokeDasharray="4 2" />
-                      <path d="M 120 280 C 180 180, 280 160, 440 60" stroke="#4f46e5" strokeWidth="5" fill="none" />
-                      
-                      {/* Stops dots */}
-                      <circle cx="120" cy="280" r="7" fill="#10b981" />
-                      <circle cx="180" cy="220" r="5" fill="#818cf8" />
-                      <circle cx="210" cy="190" r="5" fill="#818cf8" />
-                      <circle cx="250" cy="170" r="5" fill="#818cf8" />
-                      <circle cx="320" cy="130" r="5" fill="#818cf8" />
-                      <circle cx="380" cy="90" r="5" fill="#818cf8" />
-                      <circle cx="440" cy="60" r="7" fill="#ef4444" />
-
-                      {/* Live Bus Marker */}
-                      <g transform="translate(420, 50)">
-                        <rect width="32" height="20" rx="4" fill="#8b5cf6" />
-                        <text x="16" y="14" fill="white" fontSize="10" textAnchor="middle" fontWeight="bold">BUS</text>
-                      </g>
-                    </svg>
-
-                    {/* Map Controls */}
-                    <div className="absolute top-2 right-2 flex items-center gap-1">
-                      <button className="px-2 py-1 bg-slate-800/80 text-white rounded text-xs font-bold hover:bg-slate-800">
-                        +
-                      </button>
-                      <button className="px-2 py-1 bg-slate-800/80 text-white rounded text-xs font-bold hover:bg-slate-800">
-                        -
-                      </button>
-                      <button className="px-2.5 py-1 bg-slate-800/80 text-white rounded text-[11px] font-semibold hover:bg-slate-800">
-                        Reset View
-                      </button>
-                    </div>
-
-                    {/* Live speed box */}
-                    <div className="absolute top-12 right-2 bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm p-1.5 rounded-md border border-slate-200 dark:border-slate-700 text-[10px]">
-                      <div className="font-bold text-slate-800 dark:text-white">Live: 0 km/h</div>
-                      <div className="text-slate-400 text-[9px]">Updated: 10:22:15 am</div>
-                    </div>
-
-                    <div className="absolute bottom-1 left-2 text-[9px] text-slate-600 dark:text-slate-400">
-                      Drag to pan. Use mouse wheel or + / - to zoom.
-                    </div>
-                  </div>
-
-                  {/* Legend below map */}
-                  <div className="p-2 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-around text-[10px]">
-                    <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Start</div>
-                    <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-500" /> End</div>
-                    <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-indigo-500" /> Intermediate</div>
-                    <div className="flex items-center gap-1"><span className="w-2.5 h-2 rounded bg-purple-600" /> Live Bus</div>
-                  </div>
+                {/* Real Map with Leaflet + OpenStreetMap */}
+                <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden h-64 sm:h-72">
+                  <MapContainer
+                    center={[22.5726, 77.2338]} // Default to central India
+                    zoom={10}
+                    style={{ height: '100%', width: '100%' }}
+                    className="z-0"
+                  >
+                    <TileLayer
+                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    />
+                    {/* Origin marker */}
+                    <Marker position={[22.5726, 77.2338]}>
+                      <Popup>Origin: {infoTrip.route?.origin_city || 'Start Point'}</Popup>
+                    </Marker>
+                    {/* Destination marker */}
+                    <Marker position={[22.5826, 77.2438]}>
+                      <Popup>Destination: {infoTrip.route?.destination_city || 'End Point'}</Popup>
+                    </Marker>
+                    {/* Route line */}
+                    <Polyline
+                      positions={[
+                        [22.5726, 77.2338],
+                        [22.5776, 77.2388],
+                        [22.5806, 77.2408],
+                        [22.5826, 77.2438]
+                      ]}
+                      color="#6366f1"
+                      weight={4}
+                    />
+                    {/* Bus marker */}
+                    <Marker position={[22.5786, 77.2398]} icon={createBusIcon()}>
+                      <Popup>
+                        <div className="text-sm">
+                          <strong>Bus Location</strong><br />
+                          Route: {infoTrip.route?.route_name || 'Active Trip'}<br />
+                          Status: {infoTrip.status || 'Active'}
+                        </div>
+                      </Popup>
+                    </Marker>
+                  </MapContainer>
                 </div>
               </div>
 
-              {/* ── Bookings Manifest Section (Screenshot 3) ── */}
+              {/* Bookings Manifest */}
               <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-3">
                     <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                      Bookings ({tripBookings.length || 25})
+                      Bookings ({tripBookings.length})
                     </h4>
                     <span className="text-xs text-slate-500">
-                      Capacity: <b>{infoTrip.seat_capacity || 25}</b>
+                      Capacity: <b>{infoTrip.seat_capacity || 0}</b>
                     </span>
                     <button
                       onClick={() => {
-                        setNewCapacity(String(infoTrip.seat_capacity || 25));
+                        setNewCapacity(String(infoTrip.seat_capacity || 0));
                         setActionModal('capacity');
                       }}
                       className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
@@ -1058,23 +863,8 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
                       Change Capacity
                     </button>
                   </div>
-
-                  <div className="flex items-center gap-1.5 text-xs">
-                    <span className="text-slate-400 text-[11px]">Show:</span>
-                    <button className="px-2 py-0.5 rounded border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[11px]">
-                      Expired
-                    </button>
-                    <button className="px-2 py-0.5 rounded border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[11px]">
-                      Failed
-                    </button>
-                  </div>
                 </div>
 
-                <div className="text-[11px] text-slate-500">
-                  {tripBookings.length > 0 ? `${tripBookings.length} active booking(s) for this scheduled trip.` : '10 booking(s) hidden. Use the filters to view expired or failed entries.'}
-                </div>
-
-                {/* Bookings Table */}
                 <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto">
                   <table className="w-full text-left text-xs">
                     <thead>
@@ -1086,70 +876,50 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
                         <th className="p-2.5">SEATS</th>
                         <th className="p-2.5">PAYMENT</th>
                         <th className="p-2.5">STATUS</th>
-                        <th className="p-2.5">ACTIONS</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {(tripBookings.length > 0 ? tripBookings : [
-                        {
-                          id: 101,
-                          booking_reference: 'BK3LQMLC',
-                          passenger_name: 'New User',
-                          passenger_mobile: '8296055578',
-                          origin: 'S0009 • Kadamtala',
-                          destination: 'S0082 • Metropolitan',
-                          seats: 1,
-                          fare: '87.00',
-                          status: 'BOARDED',
-                        },
-                        {
-                          id: 102,
-                          booking_reference: 'BK79ZRT1',
-                          passenger_name: 'Rahul Ghosh',
-                          passenger_mobile: '9830112233',
-                          origin: 'S0012 • Joka Depot',
-                          destination: 'S0090 • Ecospace',
-                          seats: 2,
-                          fare: '174.00',
-                          status: 'BOARDED',
-                        }
-                      ]).map((b: any) => (
+                      {tripBookings.length > 0 ? tripBookings.map((b: any) => (
                         <tr key={b.id} className="border-b border-slate-100 dark:border-slate-800/60 font-mono">
                           <td className="p-2.5 font-bold text-slate-900 dark:text-white">
                             #{b.booking_reference || `BK${b.id}`}
                           </td>
                           <td className="p-2.5 font-sans">
                             <div className="font-semibold text-slate-800 dark:text-slate-200">{b.passenger_name}</div>
-                            <div className="text-[10px] text-slate-400 font-mono">Phone: {b.passenger_mobile}</div>
+                            <div className="text-[10px] text-slate-400 font-mono">{b.passenger_mobile}</div>
                           </td>
                           <td className="p-2.5 text-slate-600 dark:text-slate-400 font-sans">
-                            {b.origin_stop?.stop_name || b.origin || 'S0009 • Kadamtala'}
+                            {b.origin_stop?.stop_name || '-'}
                           </td>
                           <td className="p-2.5 text-slate-600 dark:text-slate-400 font-sans">
-                            {b.destination_stop?.stop_name || b.destination || 'S0082 • Metropolitan'}
+                            {b.destination_stop?.stop_name || '-'}
                           </td>
                           <td className="p-2.5 text-slate-800 dark:text-slate-200 font-bold">
-                            {b.total_seats || b.seats || 1}
+                            {b.total_seats || 1}
                           </td>
                           <td className="p-2.5">
-                            <div className="text-emerald-600 dark:text-emerald-400 font-bold">PAID</div>
-                            <div className="text-[10px] text-slate-400">Rs {b.final_amount || b.fare || '87.00'}</div>
+                            <div className={`font-bold ${b.payment_status === 'paid' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                              {b.payment_status?.toUpperCase() || 'PENDING'}
+                            </div>
+                            <div className="text-[10px] text-slate-400">₹{b.final_amount || '0'}</div>
                           </td>
                           <td className="p-2.5">
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-700 text-white uppercase">
-                              {b.boarding_status?.toUpperCase() || b.status || 'BOARDED'}
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                              b.boarding_status === 'boarded' ? 'bg-emerald-700 text-white' :
+                              b.boarding_status === 'not_boarded' ? 'bg-blue-700 text-white' :
+                              'bg-slate-700 text-white'
+                            }`}>
+                              {b.boarding_status?.replace('_', ' ') || b.booking_status || 'UNKNOWN'}
                             </span>
                           </td>
-                          <td className="p-2.5">
-                            <button
-                              onClick={() => onNotify(`Modify passenger booking #${b.booking_reference || b.id}`)}
-                              className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-                            >
-                              Modify
-                            </button>
+                        </tr>
+                      )) : (
+                        <tr>
+                          <td colSpan={7} className="p-8 text-center text-slate-500 dark:text-slate-400">
+                            No bookings for this trip
                           </td>
                         </tr>
-                      ))}
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -1166,48 +936,66 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
         </div>
       )}
 
-      {/* ── Sub-Modal: Reschedule Trip ── */}
+      {/* Sub-Modal: Reschedule */}
       {actionModal === 'reschedule' && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 space-y-4">
-            <h3 className="text-base font-bold text-slate-900 dark:text-white">Reschedule Trip</h3>
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">New Date</label>
-              <input
-                type="date"
-                value={rescheduleDate}
-                onChange={(e) => setRescheduleDate(e.target.value)}
-                className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
-              />
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border-2 border-blue-500 dark:border-blue-400 rounded-2xl shadow-2xl p-6 space-y-5 animate-in zoom-in duration-200">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Calendar size={20} className="text-blue-600 dark:text-blue-400" />
+                Reschedule Trip
+              </h3>
+              <button onClick={() => setActionModal(null)} className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 hover:text-slate-800 dark:hover:text-white">
+                <X size={18} />
+              </button>
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">New Departure Time</label>
-              <input
-                type="time"
-                value={rescheduleTime}
-                onChange={(e) => setRescheduleTime(e.target.value)}
-                className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
-              />
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-2">New Date</label>
+                <input
+                  type="date"
+                  value={rescheduleDate}
+                  onChange={(e) => setRescheduleDate(e.target.value)}
+                  className="w-full px-4 py-3 text-sm bg-slate-50 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-2">New Departure Time</label>
+                <input
+                  type="time"
+                  value={rescheduleTime}
+                  onChange={(e) => setRescheduleTime(e.target.value)}
+                  className="w-full px-4 py-3 text-sm bg-slate-50 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
             </div>
-            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
               <Button size="sm" variant="ghost" onClick={() => setActionModal(null)}>Cancel</Button>
-              <Button size="sm" onClick={handleApplyReschedule} loading={updatingAction}>Save Reschedule</Button>
+              <Button size="sm" onClick={handleApplyReschedule} loading={updatingAction} className="bg-blue-600 hover:bg-blue-700">Save Reschedule</Button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Sub-Modal: Change Driver ── */}
+      {/* Sub-Modal: Change Driver */}
       {actionModal === 'driver' && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 space-y-4">
-            <h3 className="text-base font-bold text-slate-900 dark:text-white">Assign New Driver</h3>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border-2 border-emerald-500 dark:border-emerald-400 rounded-2xl shadow-2xl p-6 space-y-5 animate-in zoom-in duration-200">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <UserCheck size={20} className="text-emerald-600 dark:text-emerald-400" />
+                Assign New Driver
+              </h3>
+              <button onClick={() => setActionModal(null)} className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 hover:text-slate-800 dark:hover:text-white">
+                <X size={18} />
+              </button>
+            </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Select Driver</label>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-2">Select Driver</label>
               <select
                 value={selectedNewDriver}
                 onChange={(e) => setSelectedNewDriver(e.target.value)}
-                className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                className="w-full px-4 py-3 text-sm bg-slate-50 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500"
               >
                 <option value="">Select a driver</option>
                 {drivers.map(d => (
@@ -1215,25 +1003,33 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
                 ))}
               </select>
             </div>
-            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
               <Button size="sm" variant="ghost" onClick={() => setActionModal(null)}>Cancel</Button>
-              <Button size="sm" onClick={handleApplyDriver} loading={updatingAction}>Confirm Driver</Button>
+              <Button size="sm" onClick={handleApplyDriver} loading={updatingAction} className="bg-emerald-600 hover:bg-emerald-700">Confirm Driver</Button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Sub-Modal: Change Vehicle ── */}
+      {/* Sub-Modal: Change Vehicle */}
       {actionModal === 'vehicle' && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 space-y-4">
-            <h3 className="text-base font-bold text-slate-900 dark:text-white">Assign New Vehicle</h3>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border-2 border-purple-500 dark:border-purple-400 rounded-2xl shadow-2xl p-6 space-y-5 animate-in zoom-in duration-200">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Truck size={20} className="text-purple-600 dark:text-purple-400" />
+                Assign New Vehicle
+              </h3>
+              <button onClick={() => setActionModal(null)} className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 hover:text-slate-800 dark:hover:text-white">
+                <X size={18} />
+              </button>
+            </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Select Vehicle</label>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-2">Select Vehicle</label>
               <select
                 value={selectedNewVehicle}
                 onChange={(e) => setSelectedNewVehicle(e.target.value)}
-                className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                className="w-full px-4 py-3 text-sm bg-slate-50 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-purple-500"
               >
                 <option value="">Select a vehicle</option>
                 {vehicles.map(v => (
@@ -1241,31 +1037,39 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
                 ))}
               </select>
             </div>
-            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
               <Button size="sm" variant="ghost" onClick={() => setActionModal(null)}>Cancel</Button>
-              <Button size="sm" onClick={handleApplyVehicle} loading={updatingAction}>Confirm Vehicle</Button>
+              <Button size="sm" onClick={handleApplyVehicle} loading={updatingAction} className="bg-purple-600 hover:bg-purple-700">Confirm Vehicle</Button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Sub-Modal: Change Capacity ── */}
+      {/* Sub-Modal: Change Capacity */}
       {actionModal === 'capacity' && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 space-y-4">
-            <h3 className="text-base font-bold text-slate-900 dark:text-white">Change Trip Capacity</h3>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-sm bg-white dark:bg-slate-900 border-2 border-indigo-500 dark:border-indigo-400 rounded-2xl shadow-2xl p-6 space-y-5 animate-in zoom-in duration-200">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Navigation size={20} className="text-indigo-600 dark:text-indigo-400" />
+                Change Trip Capacity
+              </h3>
+              <button onClick={() => setActionModal(null)} className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 hover:text-slate-800 dark:hover:text-white">
+                <X size={18} />
+              </button>
+            </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Total Seat Capacity</label>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-2">Total Seat Capacity</label>
               <input
                 type="number"
                 value={newCapacity}
                 onChange={(e) => setNewCapacity(e.target.value)}
-                className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                className="w-full px-4 py-3 text-sm bg-slate-50 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
               />
             </div>
-            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
               <Button size="sm" variant="ghost" onClick={() => setActionModal(null)}>Cancel</Button>
-              <Button size="sm" onClick={handleApplyCapacity} loading={updatingAction}>Update Capacity</Button>
+              <Button size="sm" onClick={handleApplyCapacity} loading={updatingAction} className="bg-indigo-600 hover:bg-indigo-700">Update Capacity</Button>
             </div>
           </div>
         </div>

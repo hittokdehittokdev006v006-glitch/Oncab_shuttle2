@@ -25,6 +25,7 @@ const refundRoutes = require('../routes/refundRoutes');
 const dashboardRoutes = require('../routes/dashboardRoutes');
 const otherRoutes = require('../routes/otherRoutes');
 const internalRoutes = require('../routes/internal');
+const busRoutes = require('../routes/busRoutes');
 
 
 const app = express();
@@ -73,6 +74,7 @@ app.use('/api2/routes', routeRoutes);
 app.use('/api2/trips', tripRoutes);
 app.use('/api2/bookings', bookingRoutes);
 app.use('/api2/refunds', refundRoutes);
+app.use('/api2/bus', busRoutes);
 app.use('/api2', otherRoutes);
 
 // ── SPA Fallback ─────────────────────────────────────────────

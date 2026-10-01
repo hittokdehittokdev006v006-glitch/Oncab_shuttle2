@@ -3,13 +3,13 @@
 const express = require('express');
 const router = express.Router();
 const driverController = require('../controllers/driverController');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, requirePermission } = require('../middleware/auth');
 
 router.use(authenticate);
-router.get('/', driverController.list);
-router.get('/:id', driverController.show);
-router.post('/', driverController.create);
-router.put('/:id', driverController.update);
-router.delete('/:id', driverController.destroy);
-router.patch('/:id/status', driverController.updateStatus);
+router.get('/', requirePermission('drivers.read'), driverController.list);
+router.get('/:id', requirePermission('drivers.read'), driverController.show);
+router.post('/', requirePermission('drivers.create'), driverController.create);
+router.put('/:id', requirePermission('drivers.update'), driverController.update);
+router.delete('/:id', requirePermission('drivers.delete'), driverController.destroy);
+router.patch('/:id/status', requirePermission('drivers.update'), driverController.updateStatus);
 module.exports = router;

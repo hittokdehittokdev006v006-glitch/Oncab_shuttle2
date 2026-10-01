@@ -24,10 +24,13 @@
       ]
     },
     /* Linting */
-    "strict": true,
+    "strict": false,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": false,
+    /* Allow JS files */
+    "allowJs": true,
+    "esModuleInterop": true
   },
   "include": [
     "src"

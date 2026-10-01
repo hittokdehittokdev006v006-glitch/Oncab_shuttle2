@@ -3,16 +3,16 @@
 const express = require('express');
 const router = express.Router();
 const vehicleController = require('../controllers/vehicleController');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, requirePermission } = require('../middleware/auth');
 
 router.use(authenticate);
-router.get('/expiring-documents', vehicleController.expiringDocuments);
-router.get('/bus-types', vehicleController.listBusTypes);
-router.get('/', vehicleController.list);
-router.get('/:id', vehicleController.show);
-router.post('/', vehicleController.create);
-router.put('/:id', vehicleController.update);
-router.delete('/:id', vehicleController.destroy);
-router.post('/:id/documents', vehicleController.addDocument);
-router.put('/:id/documents/:documentId', vehicleController.updateDocument);
+router.get('/expiring-documents', requirePermission('vehicles.read'), vehicleController.expiringDocuments);
+router.get('/bus-types', requirePermission('vehicles.read'), vehicleController.listBusTypes);
+router.get('/', requirePermission('vehicles.read'), vehicleController.list);
+router.get('/:id', requirePermission('vehicles.read'), vehicleController.show);
+router.post('/', requirePermission('vehicles.manage'), vehicleController.create);
+router.put('/:id', requirePermission('vehicles.manage'), vehicleController.update);
+router.delete('/:id', requirePermission('vehicles.manage'), vehicleController.destroy);
+router.post('/:id/documents', requirePermission('vehicles.manage'), vehicleController.addDocument);
+router.put('/:id/documents/:documentId', requirePermission('vehicles.manage'), vehicleController.updateDocument);
 module.exports = router;

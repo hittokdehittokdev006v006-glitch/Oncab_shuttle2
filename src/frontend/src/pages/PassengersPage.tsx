@@ -17,7 +17,7 @@ export const PassengersPage: React.FC<PassengersPageProps> = ({ onNotify }) => {
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
   const [deleting, setDeleting] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ name: '', mobile: '', email: '', city: '', sex: 'Male' });
+  const [form, setForm] = useState({ name: '', mobile: '', email: '', city_id: '', sex: 'Male' });
 
   const fetch = useCallback(async () => {
     try { setLoading(true); setError(''); const r = await passengersAPI.list({ page, limit: 15, search }); setPassengers(r.data.data); setPagination(r.data.pagination); }
@@ -28,8 +28,8 @@ export const PassengersPage: React.FC<PassengersPageProps> = ({ onNotify }) => {
   useEffect(() => { fetch(); }, [fetch]);
   useEffect(() => { setPage(1); }, [search]);
 
-  const openCreate = () => { setEditPassenger(null); setForm({ name: '', mobile: '', email: '', city: '', sex: 'Male' }); setShowModal(true); };
-  const openEdit = (p: any) => { setEditPassenger(p); setForm({ name: p.name, mobile: p.mobile || '', email: p.email || '', city: p.city || '', sex: p.sex || 'Male' }); setShowModal(true); };
+  const openCreate = () => { setEditPassenger(null); setForm({ name: '', mobile: '', email: '', city_id: '', sex: 'Male' }); setShowModal(true); };
+  const openEdit = (p: any) => { setEditPassenger(p); setForm({ name: p.name || '', mobile: p.mobile || '', email: p.email || '', city_id: p.city_id ? String(p.city_id) : '', sex: p.sex || 'Male' }); setShowModal(true); };
   const f = (k: keyof typeof form) => (v: string) => setForm(prev => ({ ...prev, [k]: v }));
 
   const handleSave = async () => {
@@ -44,7 +44,7 @@ export const PassengersPage: React.FC<PassengersPageProps> = ({ onNotify }) => {
 
   const handleDelete = async () => {
     setDeleting(true);
-    try { await passengersAPI.delete(deleteTarget.id); onNotify('Deleted'); setDeleteTarget(null); fetch(); }
+    try { await passengersAPI.delete(deleteTarget.id); onNotify('Passenger deactivated'); setDeleteTarget(null); fetch(); }
     catch (e: any) { onNotify(e.response?.data?.message || 'Failed', 'error'); }
     finally { setDeleting(false); }
   };
@@ -71,15 +71,15 @@ export const PassengersPage: React.FC<PassengersPageProps> = ({ onNotify }) => {
                 <Tr key={p.id}>
                   <Td>
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold text-white" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>{p.name.charAt(0)}</div>
-                      <div><div className="text-white text-sm">{p.name}</div><div className="text-slate-500 text-xs">{p.sex || '—'}</div></div>
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold text-white" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>{(p.name || '?').charAt(0).toUpperCase()}</div>
+                      <div><div className="text-white text-sm">{p.name || 'Unnamed user'}</div><div className="text-slate-500 text-xs">{p.sex || '—'}</div></div>
                     </div>
                   </Td>
                   <Td>
                     <div className="flex items-center gap-1.5 text-xs text-slate-300 mb-0.5"><Phone size={11} />{p.mobile}</div>
                     <div className="flex items-center gap-1.5 text-xs text-slate-500"><Mail size={11} />{p.email || '—'}</div>
                   </Td>
-                  <Td className="text-xs text-slate-300">{p.city || '—'}</Td>
+                  <Td className="text-xs text-slate-300">{p.city || p.city_id || '—'}</Td>
                   <Td><Badge color="blue">{p.total_bookings || 0}</Badge></Td>
                   <Td className="text-emerald-400 text-sm font-medium">₹{(p.total_spent || 0).toLocaleString()}</Td>
                   <Td><StatusBadge status={p.block_status || 'Unblock'} /></Td>
@@ -105,12 +105,12 @@ export const PassengersPage: React.FC<PassengersPageProps> = ({ onNotify }) => {
           <Input label="Full Name" value={form.name} onChange={f('name')} required className="col-span-2" />
           <Input label="Mobile" value={form.mobile} onChange={f('mobile')} required />
           <Input label="Email" type="email" value={form.email} onChange={f('email')} />
-          <Input label="City" value={form.city} onChange={f('city')} />
+          <Input label="City ID" type="number" value={form.city_id} onChange={f('city_id')} />
           <div className="space-y-1.5"><label className="block text-xs font-medium text-slate-400">Gender</label>
             <Select value={form.sex} onChange={f('sex')} options={[{ value: 'Male', label: 'Male' }, { value: 'Female', label: 'Female' }, { value: 'Other', label: 'Other' }]} /></div>
         </div>
       </Modal>
-      <ConfirmDialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)} onConfirm={handleDelete} title="Delete Passenger" message={`Delete "${deleteTarget?.name}"?`} loading={deleting} />
+      <ConfirmDialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)} onConfirm={handleDelete} title="Deactivate Passenger" message={`Deactivate "${deleteTarget?.name || deleteTarget?.mobile}"? This blocks their account without deleting it.`} loading={deleting} />
     </div>
   );
 };

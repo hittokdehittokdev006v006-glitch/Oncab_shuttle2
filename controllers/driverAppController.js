@@ -216,7 +216,8 @@ exports.toggleDutyStatus = async (req, res, next) => {
 exports.getAssignedTrips = async (req, res, next) => {
   try {
     const driverId = req.driver.id;
-    const { status, date } = req.query;
+    const status = req.query.status || req.body?.status;
+    const date = req.query.date || req.body?.date;
 
     const where = { driver_id: driverId };
     if (status) {

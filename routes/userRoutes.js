@@ -4,7 +4,7 @@ const express = require('express');
 const router = express.Router();
 const { body } = require('express-validator');
 const userController = require('../controllers/userController');
-const { authenticate, requireRole } = require('../middleware/auth');
+const { authenticate, requirePermission } = require('../middleware/auth');
 const { handleValidationErrors } = require('../middleware/errorHandler');
 
 const createValidation = [
@@ -23,11 +23,11 @@ const updateValidation = [
 
 router.use(authenticate);
 
-router.get('/', requireRole('admin'), userController.list);
-router.get('/:id', requireRole('admin'), userController.show);
-router.post('/', requireRole('admin'), createValidation, userController.create);
-router.put('/:id', requireRole('admin'), updateValidation, userController.update);
-router.delete('/:id', requireRole('admin'), userController.destroy);
-router.patch('/:id/toggle-status', requireRole('admin'), userController.toggleStatus);
+router.get('/', requirePermission('users.read'), userController.list);
+router.get('/:id', requirePermission('users.read'), userController.show);
+router.post('/', requirePermission('users.create'), createValidation, userController.create);
+router.put('/:id', requirePermission('users.update'), updateValidation, userController.update);
+router.delete('/:id', requirePermission('users.delete'), userController.destroy);
+router.patch('/:id/toggle-status', requirePermission('users.update'), userController.toggleStatus);
 
 module.exports = router;

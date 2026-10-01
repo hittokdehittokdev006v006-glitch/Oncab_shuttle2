@@ -10,6 +10,7 @@ const seedDatabase = async () => {
 
     // 1. Permissions list
     const permissionsData = [
+      { name: 'dashboard.read', display_name: 'View Dashboard', module: 'dashboard', action: 'read' },
       { name: 'users.read', display_name: 'View Users', module: 'users', action: 'read' },
       { name: 'users.create', display_name: 'Create Users', module: 'users', action: 'create' },
       { name: 'users.update', display_name: 'Update Users', module: 'users', action: 'update' },
@@ -23,6 +24,11 @@ const seedDatabase = async () => {
       { name: 'drivers.update', display_name: 'Update Drivers', module: 'drivers', action: 'update' },
       { name: 'drivers.delete', display_name: 'Delete Drivers', module: 'drivers', action: 'delete' },
 
+      { name: 'passengers.read', display_name: 'View Passengers', module: 'passengers', action: 'read' },
+      { name: 'passengers.create', display_name: 'Create Passengers', module: 'passengers', action: 'create' },
+      { name: 'passengers.update', display_name: 'Update Passengers', module: 'passengers', action: 'update' },
+      { name: 'passengers.delete', display_name: 'Deactivate Passengers', module: 'passengers', action: 'delete' },
+
       { name: 'vehicles.read', display_name: 'View Vehicles', module: 'vehicles', action: 'read' },
       { name: 'vehicles.manage', display_name: 'Manage Vehicles', module: 'vehicles', action: 'manage' },
 
@@ -32,13 +38,27 @@ const seedDatabase = async () => {
       { name: 'trips.read', display_name: 'View Trips', module: 'trips', action: 'read' },
       { name: 'trips.manage', display_name: 'Manage Trips', module: 'trips', action: 'manage' },
 
+      { name: 'schedules.read', display_name: 'View Scheduled Trips', module: 'schedules', action: 'read' },
+      { name: 'schedules.manage', display_name: 'Manage Scheduled Trips', module: 'schedules', action: 'manage' },
+
       { name: 'bookings.read', display_name: 'View Bookings', module: 'bookings', action: 'read' },
       { name: 'bookings.manage', display_name: 'Manage Bookings', module: 'bookings', action: 'manage' },
 
+      { name: 'passes.read', display_name: 'View Passes', module: 'passes', action: 'read' },
+      { name: 'passes.manage', display_name: 'Manage Passes', module: 'passes', action: 'manage' },
+      { name: 'coupons.read', display_name: 'View Coupons', module: 'coupons', action: 'read' },
+      { name: 'coupons.manage', display_name: 'Manage Coupons', module: 'coupons', action: 'manage' },
+
+      { name: 'payments.read', display_name: 'View Payments', module: 'payments', action: 'read' },
+      { name: 'payments.manage', display_name: 'Manage Payments', module: 'payments', action: 'manage' },
+
       { name: 'refunds.read', display_name: 'View Refunds', module: 'refunds', action: 'read' },
-      { name: 'refunds.process', display_name: 'Process Refunds', module: 'refunds', action: 'process' },
+      { name: 'refunds.process', display_name: 'Process Refunds', module: 'refunds', action: 'manage' },
 
       { name: 'reports.read', display_name: 'View Reports', module: 'reports', action: 'read' },
+      { name: 'audit_logs.read', display_name: 'View Audit Logs', module: 'audit_logs', action: 'read' },
+      { name: 'notifications.read', display_name: 'View Notifications', module: 'notifications', action: 'read' },
+      { name: 'notifications.manage', display_name: 'Manage Notifications', module: 'notifications', action: 'manage' },
       { name: 'settings.manage', display_name: 'Manage Settings', module: 'settings', action: 'manage' },
     ];
 
@@ -74,6 +94,16 @@ const seedDatabase = async () => {
       },
     });
 
+    const [accountantRole] = await Role.findOrCreate({
+      where: { name: 'accountant' },
+      defaults: {
+        name: 'accountant',
+        display_name: 'Accountant',
+        description: 'Finance, booking, passenger and reporting access',
+        is_active: true,
+      },
+    });
+
     // Assign all permissions to admin
     await adminRole.setPermissions(permissions);
 
@@ -82,6 +112,20 @@ const seedDatabase = async () => {
       !['roles.manage', 'settings.manage', 'users.delete'].includes(p.name)
     );
     await operatorRole.setPermissions(operatorPerms);
+
+    const accountantPermissionNames = new Set([
+      'dashboard.read',
+      'passengers.read',
+      'bookings.read',
+      'passes.read',
+      'coupons.read',
+      'payments.read',
+      'refunds.read',
+      'refunds.process',
+      'reports.read',
+      'audit_logs.read',
+    ]);
+    await accountantRole.setPermissions(permissions.filter((permission) => accountantPermissionNames.has(permission.name)));
 
     // 3. Create Default Super Admin User
     console.log('Seeding admin user...');

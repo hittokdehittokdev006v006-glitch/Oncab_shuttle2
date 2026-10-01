@@ -1,0 +1,46 @@
+'use strict';
+
+const express = require('express');
+const router = express.Router();
+const busController = require('../controllers/busController');
+
+// ── Public Bus APIs (No Authentication Required) ───────────
+// These are for user-facing mobile app
+
+// Bus Types
+router.get('/types', busController.getBusTypes);
+router.post('/types', busController.getBusTypes);
+
+// Routes
+router.get('/routes', busController.getRoutes);
+router.post('/routes', busController.getRoutes);
+
+// Search Routes with Filters
+router.get('/search-routes', busController.searchRoutes);
+router.post('/search-routes', busController.searchRoutes);
+
+// Schedules
+router.get('/schedules', busController.getSchedules);
+router.post('/schedules', busController.getSchedules);
+
+// Seat Availability
+router.get('/seat-availability', busController.checkSeatAvailability);
+router.post('/seat-availability', busController.checkSeatAvailability);
+
+// Fare Calculation
+router.get('/calculate-fare', busController.calculateFare);
+router.post('/calculate-fare', busController.calculateFare);
+
+// User Bookings (Can be made public with passenger_mobile)
+router.get('/user-bookings', busController.getUserBookings);
+router.post('/user-bookings', busController.getUserBookings);
+
+// Booking Details for Boarding Pass
+router.get('/booking-details', busController.getBookingDetails);
+router.post('/booking-details', busController.getBookingDetails);
+
+// Create / Book Ticket
+router.post('/create-booking', busController.createBooking);
+router.post('/book-ticket', busController.createBooking);
+
+module.exports = router;
