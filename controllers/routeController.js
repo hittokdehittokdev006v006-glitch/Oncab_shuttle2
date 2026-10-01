@@ -1,7 +1,7 @@
 'use strict';
 
 const { Op } = require('sequelize');
-const { Route, Stop } = require('../models');
+const { Route, Stop, sequelize } = require('../models');
 const { logAction } = require('../middleware/auditLog');
 
 const buildPagination = (page, limit) => {
@@ -51,12 +51,26 @@ exports.create = async (req, res, next) => {
     const exists = await Route.findOne({ where: { route_code } });
     if (exists) return res.status(409).json({ success: false, message: 'Route code already exists' });
 
-    const route = await Route.create({ route_name, route_code, origin_city, destination_city, total_distance, estimated_duration, description });
+    const route = await sequelize.transaction(async (transaction) => {
+      const createdRoute = await Route.create(
+        { route_name, route_code, origin_city, destination_city, total_distance, estimated_duration, description },
+        { transaction }
+      );
 
-    if (stops?.length) {
-      const stopsData = stops.map((s, i) => ({ ...s, route_id: route.id, stop_sequence: s.stop_sequence ?? i + 1 }));
-      await Stop.bulkCreate(stopsData);
-    }
+      if (Array.isArray(stops) && stops.length) {
+        const stopsData = stops.map((stop, index) => ({
+          stop_name: stop.stop_name,
+          latitude: stop.latitude,
+          longitude: stop.longitude,
+          address: stop.address,
+          stop_sequence: stop.stop_sequence ?? index + 1,
+          route_id: createdRoute.id,
+        }));
+        await Stop.bulkCreate(stopsData, { transaction });
+      }
+
+      return createdRoute;
+    });
 
     await logAction({ userId: req.user?.id, userType: req.user?.role?.name, userName: req.user?.name, action: 'create', module: 'routes', entityType: 'Route', entityId: route.id, newValues: { route_name, route_code }, ipAddress: req.ip, description: `Created route ${route_name}` });
 
@@ -72,8 +86,46 @@ exports.update = async (req, res, next) => {
   try {
     const route = await Route.findByPk(req.params.id);
     if (!route) return res.status(404).json({ success: false, message: 'Route not found' });
-    await route.update(req.body);
-    res.json({ success: true, message: 'Route updated', data: route });
+    const { stops, ...routeFields } = req.body;
+
+    await sequelize.transaction(async (transaction) => {
+      await route.update(routeFields, { transaction });
+
+      if (Array.isArray(stops)) {
+        const existingStops = await Stop.findAll({ where: { route_id: route.id }, transaction });
+        const existingById = new Map(existingStops.map((stop) => [stop.id, stop]));
+        const retainedIds = new Set();
+
+        for (const [index, stopData] of stops.entries()) {
+          const fields = {
+            stop_name: stopData.stop_name,
+            latitude: stopData.latitude,
+            longitude: stopData.longitude,
+            address: stopData.address,
+            stop_sequence: stopData.stop_sequence ?? index + 1,
+          };
+          const existingStop = stopData.id && existingById.get(Number(stopData.id));
+
+          if (existingStop) {
+            await existingStop.update(fields, { transaction });
+            retainedIds.add(existingStop.id);
+          } else {
+            const createdStop = await Stop.create({ ...fields, route_id: route.id }, { transaction });
+            retainedIds.add(createdStop.id);
+          }
+        }
+
+        const removedStops = existingStops.filter((stop) => !retainedIds.has(stop.id));
+        if (removedStops.length) {
+          await Stop.destroy({ where: { id: removedStops.map((stop) => stop.id), route_id: route.id }, transaction });
+        }
+      }
+    });
+
+    const updatedRoute = await Route.findByPk(route.id, {
+      include: [{ model: Stop, as: 'stops' }],
+    });
+    res.json({ success: true, message: 'Route updated', data: updatedRoute });
   } catch (err) {
     next(err);
   }

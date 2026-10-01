@@ -6,8 +6,10 @@ import {
 } from 'lucide-react';
 import { tripsAPI, routesAPI, driversAPI, vehiclesAPI, bookingsAPI } from '../services/api';
 import { Card, Table, Tr, Td, Pagination, Button, LoadingState, ErrorState } from '../components/ui';
-import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
+
+type MapPosition = [number, number];
 
 // Fix for default marker icon in Leaflet with React
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -17,14 +19,14 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
 
-// Custom bus icon
-const createBusIcon = () => {
-  return L.divIcon({
-    className: 'custom-bus-icon',
-    html: `<div style="background-color: #8b5cf6; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">BUS</div>`,
-    iconSize: [50, 30],
-    iconAnchor: [25, 15],
-  });
+const FitRouteBounds: React.FC<{ positions: MapPosition[] }> = ({ positions }) => {
+  const map = useMap();
+
+  useEffect(() => {
+    if (positions.length > 1) map.fitBounds(positions, { padding: [24, 24] });
+  }, [map, positions]);
+
+  return null;
 };
 
 interface TripsPageProps {
@@ -55,6 +57,63 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
   const [infoTrip, setInfoTrip] = useState<any | null>(null);
   const [tripBookings, setTripBookings] = useState<any[]>([]);
   const [loadingBookings, setLoadingBookings] = useState(false);
+  const [roadRoute, setRoadRoute] = useState<MapPosition[]>([]);
+  const [routeMapError, setRouteMapError] = useState('');
+  const [loadingRoadRoute, setLoadingRoadRoute] = useState(false);
+
+  const routeStops = useMemo(() => {
+    const stops = infoTrip?.route?.stops;
+    if (!Array.isArray(stops)) return [];
+
+    return stops
+      .map((stop: any) => ({
+        ...stop,
+        hasCoordinates: stop.latitude !== null && stop.latitude !== undefined && stop.latitude !== ''
+          && stop.longitude !== null && stop.longitude !== undefined && stop.longitude !== '',
+        latitude: Number(stop.latitude),
+        longitude: Number(stop.longitude),
+      }))
+      .filter((stop: any) => stop.hasCoordinates && Number.isFinite(stop.latitude) && Number.isFinite(stop.longitude)
+        && Math.abs(stop.latitude) <= 90 && Math.abs(stop.longitude) <= 180)
+      .sort((a: any, b: any) => Number(a.stop_sequence) - Number(b.stop_sequence));
+  }, [infoTrip]);
+
+  useEffect(() => {
+    if (routeStops.length < 2) {
+      setRoadRoute([]);
+      setRouteMapError('Add at least two route stops with valid coordinates to display the road route.');
+      return;
+    }
+
+    const controller = new AbortController();
+    const coordinates = routeStops.map((stop: any) => `${stop.longitude},${stop.latitude}`).join(';');
+    setLoadingRoadRoute(true);
+    setRouteMapError('');
+    setRoadRoute([]);
+
+    fetch(`https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false`, {
+      signal: controller.signal,
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error('Road routing service is unavailable.');
+        return response.json();
+      })
+      .then((data) => {
+        const coordinates = data.routes?.[0]?.geometry?.coordinates;
+        if (!Array.isArray(coordinates) || coordinates.length < 2) {
+          throw new Error('No drivable road route was found for these stops.');
+        }
+        setRoadRoute(coordinates.map(([longitude, latitude]: [number, number]) => [latitude, longitude]));
+      })
+      .catch((error) => {
+        if (error.name !== 'AbortError') setRouteMapError(error.message || 'Unable to load the road route.');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingRoadRoute(false);
+      });
+
+    return () => controller.abort();
+  }, [routeStops]);
 
   // Sub-modals
   const [actionModal, setActionModal] = useState<'reschedule' | 'driver' | 'vehicle' | 'capacity' | null>(null);
@@ -798,48 +857,41 @@ export const TripsPage: React.FC<TripsPageProps> = ({ onNotify }) => {
                   </div>
                 </div>
 
-                {/* Real Map with Leaflet + OpenStreetMap */}
-                <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden h-64 sm:h-72">
-                  <MapContainer
-                    center={[22.5726, 77.2338]} // Default to central India
-                    zoom={10}
-                    style={{ height: '100%', width: '100%' }}
-                    className="z-0"
-                  >
-                    <TileLayer
-                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                    />
-                    {/* Origin marker */}
-                    <Marker position={[22.5726, 77.2338]}>
-                      <Popup>Origin: {infoTrip.route?.origin_city || 'Start Point'}</Popup>
-                    </Marker>
-                    {/* Destination marker */}
-                    <Marker position={[22.5826, 77.2438]}>
-                      <Popup>Destination: {infoTrip.route?.destination_city || 'End Point'}</Popup>
-                    </Marker>
-                    {/* Route line */}
-                    <Polyline
-                      positions={[
-                        [22.5726, 77.2338],
-                        [22.5776, 77.2388],
-                        [22.5806, 77.2408],
-                        [22.5826, 77.2438]
-                      ]}
-                      color="#6366f1"
-                      weight={4}
-                    />
-                    {/* Bus marker */}
-                    <Marker position={[22.5786, 77.2398]} icon={createBusIcon()}>
-                      <Popup>
-                        <div className="text-sm">
-                          <strong>Bus Location</strong><br />
-                          Route: {infoTrip.route?.route_name || 'Active Trip'}<br />
-                          Status: {infoTrip.status || 'Active'}
+                <div className="relative rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden h-64 sm:h-72">
+                  {routeStops.length >= 2 ? (
+                    <>
+                      <MapContainer
+                        center={[routeStops[0].latitude, routeStops[0].longitude]}
+                        zoom={12}
+                        style={{ height: '100%', width: '100%' }}
+                        className="z-0"
+                      >
+                        <TileLayer
+                          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                          url="https://tile.openstreetmap.de/{z}/{x}/{y}.png"
+                        />
+                        <FitRouteBounds positions={roadRoute.length ? roadRoute : routeStops.map((stop: any) => [stop.latitude, stop.longitude])} />
+                        {routeStops.map((stop: any, index: number) => (
+                          <Marker key={stop.id || `${stop.stop_sequence}-${index}`} position={[stop.latitude, stop.longitude]}>
+                            <Popup>
+                              {index === 0 ? 'Origin' : index === routeStops.length - 1 ? 'Destination' : `Stop ${stop.stop_sequence || index + 1}`}:
+                              {' '}{stop.stop_name || `Stop ${index + 1}`}
+                            </Popup>
+                          </Marker>
+                        ))}
+                        {roadRoute.length > 1 && <Polyline positions={roadRoute} color="#6366f1" weight={5} />}
+                      </MapContainer>
+                      {(loadingRoadRoute || routeMapError) && (
+                        <div className="absolute bottom-2 left-2 z-[1000] rounded bg-white/95 px-2 py-1 text-xs text-slate-700 shadow">
+                          {loadingRoadRoute ? 'Loading road route...' : routeMapError}
                         </div>
-                      </Popup>
-                    </Marker>
-                  </MapContainer>
+                      )}
+                    </>
+                  ) : (
+                    <div className="flex h-full items-center justify-center bg-slate-50 px-4 text-center text-sm text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+                      {routeMapError || 'Route stops with coordinates are not configured.'}
+                    </div>
+                  )}
                 </div>
               </div>
 

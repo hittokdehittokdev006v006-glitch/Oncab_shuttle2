@@ -1,7 +1,7 @@
 'use strict';
 
 const { Op } = require('sequelize');
-const { Trip, Route, Driver, Vehicle, BusType, Booking } = require('../models');
+const { Trip, Route, Stop, Driver, Vehicle, BusType, Booking } = require('../models');
 const { logAction } = require('../middleware/auditLog');
 
 const buildPagination = (page, limit) => {
@@ -15,6 +15,16 @@ const TRIP_INCLUDE = [
   { model: Driver, as: 'driver', attributes: ['id', 'name', 'mobile', 'photo'] },
   { model: Vehicle, as: 'vehicle', attributes: ['id', 'registration_number', 'company_model', 'color'] },
   { model: BusType, as: 'bus_type', attributes: ['id', 'name', 'total_seats'] },
+];
+
+const TRIP_DETAILS_INCLUDE = [
+  {
+    model: Route,
+    as: 'route',
+    attributes: ['id', 'route_name', 'route_code', 'origin_city', 'destination_city'],
+    include: [{ model: Stop, as: 'stops', attributes: ['id', 'stop_name', 'latitude', 'longitude', 'stop_sequence'] }],
+  },
+  ...TRIP_INCLUDE.filter((include) => include.as !== 'route'),
 ];
 
 // ── List Trips ─────────────────────────────────────────────
@@ -44,7 +54,7 @@ exports.list = async (req, res, next) => {
 // ── Get Trip ───────────────────────────────────────────────
 exports.show = async (req, res, next) => {
   try {
-    const trip = await Trip.findByPk(req.params.id, { include: TRIP_INCLUDE });
+    const trip = await Trip.findByPk(req.params.id, { include: TRIP_DETAILS_INCLUDE });
     if (!trip) return res.status(404).json({ success: false, message: 'Trip not found' });
     const bookingsCount = await Booking.count({ where: { trip_id: trip.id, booking_status: { [Op.ne]: 'cancelled' } } });
     res.json({ success: true, data: { ...trip.toJSON(), bookings_count: bookingsCount } });
