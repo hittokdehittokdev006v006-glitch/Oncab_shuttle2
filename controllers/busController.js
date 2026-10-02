@@ -4,6 +4,7 @@ const { Op, fn, col } = require('sequelize');
 const { v4: uuidv4 } = require('uuid');
 const { BusType, BusRoute, BusSchedule, BusStop, Trip, Booking, Vehicle, Stop, Route, BusDriverAssignment, Passenger, Coupon } = require('../models');
 const sequelize = require('../config/database');
+const { resolveFare } = require('../utils/fareCalculator');
 
 const buildPagination = (page, limit) => {
   const p = Math.max(1, parseInt(page) || 1);
@@ -361,7 +362,11 @@ exports.calculateFare = async (req, res, next) => {
     const rawScheduleId = query.schedule_id || body.schedule_id;
     const origin_stop_id = query.origin_stop_id || body.origin_stop_id;
     const destination_stop_id = query.destination_stop_id || body.destination_stop_id;
-    const seat_count = query.seat_count || body.seat_count || 1;
+    const rawSeatCount = query.seat_count || body.seat_count || 1;
+    const seat_count = Number(rawSeatCount);
+    if (!Number.isInteger(seat_count) || seat_count < 1) {
+      return res.status(400).json({ status: 400, success: false, message: 'seat_count must be a positive integer' });
+    }
 
     if (!rawScheduleId) {
       return res.status(400).json({
@@ -398,25 +403,24 @@ exports.calculateFare = async (req, res, next) => {
       });
     }
 
-    // Calculate distance based on stops
-    let distance = schedule.route?.total_distance || 100;
-    let farePerKm = schedule.fare_per_km || 3;
-    let baseFare = schedule.base_fare || 100;
+    const scheduleRoute = schedule.route;
+    const isLegacyRoute = scheduleRoute
+      && !Object.prototype.hasOwnProperty.call(scheduleRoute.dataValues || {}, 'route_stops');
+    const route = schedule.main_route || (isLegacyRoute ? scheduleRoute : null);
+    const distance = Number(route?.total_distance) || 100;
+    const farePerKm = Number(schedule.fare_per_km) || 3;
+    const baseFare = Number(schedule.base_fare) || 100;
+    const fallbackFare = baseFare + (distance * farePerKm);
+    const fareResult = await resolveFare({
+      routeId: route?.id,
+      originStopId: origin_stop_id,
+      destinationStopId: destination_stop_id,
+      fallbackFare,
+    });
+    if (fareResult.error) return res.status(400).json({ status: 400, success: false, message: fareResult.error });
 
-    // If origin and destination stops are provided, calculate segment distance
-    if (origin_stop_id && destination_stop_id) {
-      const originStop = await Stop.findByPk(origin_stop_id);
-      const destStop = await Stop.findByPk(destination_stop_id);
-
-      if (originStop && destStop) {
-        // Simple calculation: use route distance if stops are on the route
-        // In production, you would calculate actual segment distance
-        distance = Math.abs(destStop.distance_from_origin - originStop.distance_from_origin) || distance;
-      }
-    }
-
-    const totalFare = baseFare + (distance * farePerKm);
-    const finalAmount = totalFare * seat_count;
+    const farePerSeat = fareResult.fare;
+    const finalAmount = farePerSeat * seat_count;
 
     res.json({
       status: 200,
@@ -431,8 +435,9 @@ exports.calculateFare = async (req, res, next) => {
         base_fare: baseFare,
         fare_per_km: farePerKm,
         seat_count,
-        fare_per_seat: totalFare,
+        fare_per_seat: farePerSeat,
         total_fare: finalAmount,
+        rate_source: fareResult.source,
         currency: 'INR',
       },
     });
@@ -704,7 +709,19 @@ exports.createBooking = async (req, res, next) => {
       return res.status(409).json({ status: 409, success: false, message: `Only ${available} seats available` });
     }
 
-    let total_fare = (trip.base_fare || 0) * numSeats;
+    const fareResult = await resolveFare({
+      routeId: trip.route_id,
+      originStopId: origin_stop_id,
+      destinationStopId: destination_stop_id,
+      fallbackFare: trip.base_fare,
+      transaction: t,
+    });
+    if (fareResult.error) {
+      await t.rollback();
+      return res.status(400).json({ status: 400, success: false, message: fareResult.error });
+    }
+
+    let total_fare = fareResult.fare * numSeats;
     let discount_amount = 0;
 
     if (coupon_id) {

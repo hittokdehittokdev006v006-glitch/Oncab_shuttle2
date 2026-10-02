@@ -38,6 +38,8 @@ const seedDatabase = async () => {
       { name: 'trips.read', display_name: 'View Trips', module: 'trips', action: 'read' },
       { name: 'trips.manage', display_name: 'Manage Trips', module: 'trips', action: 'manage' },
       { name: 'locations.read', display_name: 'View Live Locations', module: 'locations', action: 'read' },
+      { name: 'rates.read', display_name: 'View Rate Charts', module: 'rates', action: 'read' },
+      { name: 'rates.manage', display_name: 'Manage Rate Charts', module: 'rates', action: 'manage' },
 
       { name: 'schedules.read', display_name: 'View Scheduled Trips', module: 'schedules', action: 'read' },
       { name: 'schedules.manage', display_name: 'Manage Scheduled Trips', module: 'schedules', action: 'manage' },

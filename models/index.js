@@ -28,6 +28,7 @@ const Coupon = require('./Coupon');
 const Notification = require('./Notification');
 const AuditLog = require('./AuditLog');
 const SystemSetting = require('./SystemSetting');
+const RateChart = require('./RateChart');
 
 // ─── Role & Permission Associations ─────────────────────
 Role.belongsToMany(Permission, {
@@ -78,6 +79,10 @@ VehicleDocument.belongsTo(Vehicle, { foreignKey: 'vehicle_id', as: 'vehicle' });
 // ─── Route & Stop Associations ───────────────────────────
 Route.hasMany(Stop, { foreignKey: 'route_id', as: 'stops', onDelete: 'CASCADE' });
 Stop.belongsTo(Route, { foreignKey: 'route_id', as: 'route' });
+Route.hasMany(RateChart, { foreignKey: 'route_id', as: 'rate_charts', onDelete: 'CASCADE' });
+RateChart.belongsTo(Route, { foreignKey: 'route_id', as: 'route' });
+RateChart.belongsTo(Stop, { foreignKey: 'origin_stop_id', as: 'origin_stop' });
+RateChart.belongsTo(Stop, { foreignKey: 'destination_stop_id', as: 'destination_stop' });
 
 // ─── Trip Associations ───────────────────────────────────
 Trip.belongsTo(Route, { foreignKey: 'route_id', as: 'route' });
@@ -156,4 +161,5 @@ module.exports = {
   Notification,
   AuditLog,
   SystemSetting,
+  RateChart,
 };
