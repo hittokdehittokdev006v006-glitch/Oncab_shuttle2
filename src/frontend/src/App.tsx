@@ -236,6 +236,12 @@ const TripsPage = React.lazy(() =>
   }))
 );
 
+const LocationPage = React.lazy(() =>
+  import('./pages/LocationPage').then(m => ({
+    default: m.LocationPage
+  }))
+);
+
 const BookingsPage = React.lazy(() =>
   import('./pages/BookingsPage').then(m => ({
     default: m.BookingsPage
@@ -366,6 +372,7 @@ const VALID_VIEWS: View[] = [
   'routes',
   'stops',
   'trips',
+  'locations',
   'scheduled-trips',
   'passengers',
   'bookings',
@@ -386,6 +393,7 @@ const VIEW_PERMISSIONS: Partial<Record<View, string>> = {
   users: 'users.read', roles: 'roles.read', drivers: 'drivers.read',
   vehicles: 'vehicles.read', 'vehicle-docs': 'vehicles.read', routes: 'routes.read',
   stops: 'routes.read', trips: 'trips.read', 'scheduled-trips': 'schedules.read',
+  locations: 'locations.read',
   passengers: 'passengers.read', bookings: 'bookings.read', passes: 'passes.read',
   coupons: 'coupons.read', payments: 'payments.read', 'cancelled-tickets': 'bookings.read',
   refunds: 'refunds.read', 'failed-refunds': 'refunds.read', 'paid-refunds': 'refunds.read',
@@ -645,6 +653,13 @@ const AppInner: React.FC = () => {
         return (
           <PageWrapper>
             <TripsPage {...props} />
+          </PageWrapper>
+        );
+
+      case 'locations':
+        return (
+          <PageWrapper>
+            <LocationPage {...props} />
           </PageWrapper>
         );
 

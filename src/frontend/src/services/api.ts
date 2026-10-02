@@ -48,7 +48,8 @@ api.interceptors.response.use(
       } catch {
         localStorage.removeItem('access_token');
         localStorage.removeItem('refresh_token');
-        window.location.href = '/login';
+        window.location.replace(import.meta.env.BASE_URL);
+        return Promise.reject(error);
       }
     }
     return Promise.reject(error);
@@ -72,6 +73,10 @@ export const dashboardAPI = {
   stats: () => api.get('/dashboard/stats'),
   revenueReport: (params?: object) => api.get('/dashboard/revenue-report', { params }),
   auditLogs: (params?: object) => api.get('/dashboard/audit-logs', { params }),
+};
+
+export const locationsAPI = {
+  dashboard: () => api.get('/locations/dashboard'),
 };
 
 export const usersAPI = {
