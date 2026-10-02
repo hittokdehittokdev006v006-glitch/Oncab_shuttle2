@@ -28,7 +28,7 @@ interface DriversPageProps {
   onNotify: (msg: string, type?: any) => void;
 }
 
-const HEADERS = ['Driver', 'Mobile / Email', 'Aadhar / PAN', 'Documents', 'Status', 'Online', 'Block', 'Joined', 'Actions'];
+const HEADERS = ['Driver', 'Mobile / Email', 'Aadhar / PAN', 'Documents', 'Doc Status', 'Status', 'Online', 'Block', 'Joined', 'Actions'];
 const STATUS_OPTIONS = [
   { value: 'Approve', label: 'Approved' },
   { value: 'Disapprove', label: 'Disapproved' },
@@ -69,6 +69,7 @@ export const DriversPage: React.FC<DriversPageProps> = ({ onNotify }) => {
     pan_img: '',
     address: '',
     status: 'Pending',
+    complete_status: 'Incomplete',
     is_bus_driver: false,
     preferred_bus_type_id: '',
   });
@@ -117,6 +118,7 @@ export const DriversPage: React.FC<DriversPageProps> = ({ onNotify }) => {
       pan_img: '',
       address: '',
       status: 'Pending',
+      complete_status: 'Incomplete',
       is_bus_driver: false,
       preferred_bus_type_id: '',
     });
@@ -136,39 +138,29 @@ export const DriversPage: React.FC<DriversPageProps> = ({ onNotify }) => {
       pan_img: d.details?.smart_card_img || '',
       address: d.address || '',
       status: d.status || 'Pending',
+      complete_status: d.complete_status || 'Incomplete',
       is_bus_driver: Boolean(d.is_bus_driver),
       preferred_bus_type_id: d.preferred_bus_type_id ? String(d.preferred_bus_type_id) : '',
     });
     setShowModal(true);
   };
 
-  // const handleFileUpload = (field: 'aadhar_img' | 'pan_img') => (e: React.ChangeEvent<HTMLInputElement>) => {
-  //   const file = e.target.files?.[0];
-  //   if (file) {
-  //     const reader = new FileReader();
-  //     reader.onloadend = () => {
-  //       setForm((prev) => ({ ...prev, [field]: reader.result as string }));
-  //     };
-  //     reader.readAsDataURL(file);
-  //   }
-  // };
-
   const handleFileUpload = (field: 'aadhar_img' | 'pan_img') => (e: React.ChangeEvent<HTMLInputElement>) => {
-  const file = e.target.files?.[0];
+    const file = e.target.files?.[0];
 
-  if (file) {
-    const reader = new FileReader();
+    if (file) {
+      const reader = new FileReader();
 
-    reader.onloadend = () => {
-      setForm((prev) => ({
-        ...prev,
-        [field]: reader.result as string,
-      }));
-    };
+      reader.onloadend = () => {
+        setForm((prev) => ({
+          ...prev,
+          [field]: reader.result as string,
+        }));
+      };
 
-    reader.readAsDataURL(file);
-  }
-};
+      reader.readAsDataURL(file);
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -374,6 +366,21 @@ export const DriversPage: React.FC<DriversPageProps> = ({ onNotify }) => {
                           <span className="text-[11px] text-slate-600">No PAN</span>
                         )}
                       </div>
+                    </Td>
+                    {/* Document Status Column */}
+                    <Td>
+                      <button
+                        onClick={() =>
+                          handleStatusUpdate(
+                            driver,
+                            'complete_status',
+                            driver.complete_status === 'Complete' ? 'Incomplete' : 'Complete'
+                          )
+                        }
+                        title="Click to toggle Complete / Incomplete document status"
+                      >
+                        <StatusBadge status={driver.complete_status || 'Incomplete'} />
+                      </button>
                     </Td>
                     <Td>
                       {/* Status Dropdown to easily approve / change from Pending */}

@@ -279,10 +279,11 @@ exports.updateStatus = async (req, res, next) => {
   try {
     const driver = await Driver.findByPk(req.params.id);
     if (!driver) return res.status(404).json({ success: false, message: 'Driver not found' });
-    const { status, block_status, online_status } = req.body;
-    await driver.update({ status, block_status, online_status });
+    const { status, block_status, online_status, complete_status } = req.body;
+    await driver.update({ status, block_status, online_status, complete_status });
     res.json({ success: true, message: 'Driver status updated', data: driver });
   } catch (err) {
     next(err);
   }
 };
+
