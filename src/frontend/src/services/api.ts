@@ -79,6 +79,13 @@ export const locationsAPI = {
   dashboard: () => api.get('/locations/dashboard'),
 };
 
+export const rateChartsAPI = {
+  list: () => api.get('/rate-charts'),
+  create: (data: object) => api.post('/rate-charts', data),
+  update: (id: number, data: object) => api.put(`/rate-charts/${id}`, data),
+  delete: (id: number) => api.delete(`/rate-charts/${id}`),
+};
+
 export const usersAPI = {
   list: (params?: object) => api.get('/users', { params }),
   show: (id: number) => api.get(`/users/${id}`),
