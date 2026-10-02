@@ -23,6 +23,7 @@ const tripRoutes = require('../routes/tripRoutes');
 const bookingRoutes = require('../routes/bookingRoutes');
 const refundRoutes = require('../routes/refundRoutes');
 const dashboardRoutes = require('../routes/dashboardRoutes');
+const locationRoutes = require('../routes/locationRoutes');
 const otherRoutes = require('../routes/otherRoutes');
 const internalRoutes = require('../routes/internal');
 const busRoutes = require('../routes/busRoutes');
@@ -64,6 +65,7 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Dat
 app.use('/api2/auth', authRoutes);
 app.use('/api2/internal',internalRoutes);
 app.use('/api2/dashboard', dashboardRoutes);
+app.use('/api2/locations', locationRoutes);
 app.use('/api2/users', userRoutes);
 app.use('/api2/roles', roleRoutes);
 app.use('/api2/drivers', driverRoutes);

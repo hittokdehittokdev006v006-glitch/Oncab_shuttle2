@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Plus, Edit2, Trash2, MapPin, ChevronRight, X, AlertCircle } from 'lucide-react';
 import { routesAPI } from '../services/api';
 import { Card, Table, Tr, Td, Pagination, SearchInput, Button, Select, StatusBadge, Modal, Input, ConfirmDialog, ErrorState, Badge } from '../components/ui';
@@ -11,6 +11,121 @@ interface RouteStopItem {
   stop_sequence: number | string;
   address: string;
 }
+
+interface PlaceResult {
+  name: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+}
+
+const StopPlaceSearch: React.FC<{
+  value: string;
+  onChange: (value: string) => void;
+  onSelect: (place: PlaceResult) => void;
+}> = ({ value, onChange, onSelect }) => {
+  const [suggestions, setSuggestions] = useState<PlaceResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchActive, setSearchActive] = useState(false);
+  const skipQuery = useRef('');
+
+  useEffect(() => {
+    const query = value.trim();
+    if (query === skipQuery.current) {
+      skipQuery.current = '';
+      setSuggestions([]);
+      setSearching(false);
+      return;
+    }
+    setSuggestions([]);
+    setSearching(false);
+    if (!searchActive || query.length < 3) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(async () => {
+      setSearching(true);
+      try {
+        const response = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=50`, {
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error('Place search failed');
+        const data = await response.json();
+        const places = (data.features || []).flatMap((feature: any) => {
+          const [longitude, latitude] = feature.geometry?.coordinates || [];
+          if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return [];
+
+          const properties = feature.properties || {};
+          const name = properties.name || properties.street || properties.city || query;
+          const address = [
+            properties.name,
+            properties.street,
+            properties.housenumber,
+            properties.city || properties.district,
+            properties.state,
+            properties.country,
+          ].filter(Boolean).join(', ');
+
+          return [{ name, address, latitude, longitude }];
+        });
+        setSuggestions(places);
+      } catch (error: any) {
+        if (error.name !== 'AbortError') setSuggestions([]);
+      } finally {
+        if (!controller.signal.aborted) setSearching(false);
+      }
+    }, 350);
+
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [value, searchActive]);
+
+  const choosePlace = (place: PlaceResult) => {
+    skipQuery.current = place.name;
+    setSearchActive(false);
+    setSuggestions([]);
+    onSelect(place);
+  };
+
+  return (
+    <div className="relative flex-1 min-w-[160px]">
+      <input
+        type="text"
+        autoComplete="off"
+        placeholder="Search stop or station name"
+        value={value}
+        onChange={(event) => {
+          setSearchActive(true);
+          onChange(event.target.value);
+        }}
+        className="w-full px-2.5 py-1.5 bg-slate-800 border border-slate-700 rounded text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+      />
+      {(searching || suggestions.length > 0) && (
+        <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded border border-slate-700 bg-slate-900 shadow-xl">
+          {searching && <div className="px-3 py-2 text-xs text-slate-400">Searching map places...</div>}
+          {suggestions.map((place, index) => (
+            <button
+              key={`${place.latitude}-${place.longitude}-${index}`}
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => choosePlace(place)}
+              className="block w-full border-b border-slate-800 px-3 py-2 text-left last:border-0 hover:bg-slate-800"
+            >
+              <span className="block text-xs font-medium text-white">{place.name}</span>
+              {place.address && <span className="mt-0.5 block text-[10px] text-slate-400">{place.address}</span>}
+            </button>
+          ))}
+          <div className="px-3 py-1.5 text-[10px] text-slate-500">
+            Search results © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer" className="underline">OpenStreetMap contributors</a>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 interface Stop {
   id: number;
@@ -125,11 +240,11 @@ export const RouteCreationPage: React.FC<RouteCreationPageProps> = ({ onNotify, 
     });
     if (r.stops && r.stops.length > 0) {
       setStopsList(
-        r.stops.map((s, idx) => ({
+        [...r.stops].sort((a, b) => a.stop_sequence - b.stop_sequence).map((s, idx) => ({
           id: s.id,
           stop_name: s.stop_name || '',
-          latitude: s.latitude ? String(s.latitude) : '',
-          longitude: s.longitude ? String(s.longitude) : '',
+          latitude: s.latitude != null ? String(s.latitude) : '',
+          longitude: s.longitude != null ? String(s.longitude) : '',
           stop_sequence: s.stop_sequence || idx + 1,
           address: s.address || '',
         }))
@@ -160,7 +275,21 @@ export const RouteCreationPage: React.FC<RouteCreationPageProps> = ({ onNotify, 
       setStopsList([{ stop_name: '', latitude: '', longitude: '', stop_sequence: 1, address: '' }]);
       return;
     }
-    setStopsList((prev) => prev.filter((_, idx) => idx !== index));
+    setStopsList((prev) => prev
+      .filter((_, idx) => idx !== index)
+      .map((stop, idx) => ({ ...stop, stop_sequence: idx + 1 })));
+  };
+
+  const handlePlaceSelect = (index: number, place: PlaceResult) => {
+    setStopsList((prev) => prev.map((stop, stopIndex) => stopIndex === index
+      ? {
+          ...stop,
+          stop_name: place.name,
+          latitude: String(place.latitude),
+          longitude: String(place.longitude),
+          address: place.address,
+        }
+      : stop));
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -175,6 +304,7 @@ export const RouteCreationPage: React.FC<RouteCreationPageProps> = ({ onNotify, 
       const validStops = stopsList
         .filter((s) => s.stop_name.trim().length > 0)
         .map((s, idx) => ({
+          id: s.id,
           stop_name: s.stop_name.trim(),
           latitude: s.latitude ? parseFloat(s.latitude) : null,
           longitude: s.longitude ? parseFloat(s.longitude) : null,
@@ -506,12 +636,10 @@ export const RouteCreationPage: React.FC<RouteCreationPageProps> = ({ onNotify, 
                 <div className="space-y-2">
                   {stopsList.map((stop, index) => (
                     <div key={index} className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                      <input
-                        type="text"
-                        placeholder="Stop Name"
+                      <StopPlaceSearch
                         value={stop.stop_name}
-                        onChange={(e) => handleStopChange(index, 'stop_name', e.target.value)}
-                        className="flex-1 min-w-[120px] px-2.5 py-1.5 bg-slate-800 border border-slate-700 rounded text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                        onChange={(value) => handleStopChange(index, 'stop_name', value)}
+                        onSelect={(place) => handlePlaceSelect(index, place)}
                       />
                       <input
                         type="text"

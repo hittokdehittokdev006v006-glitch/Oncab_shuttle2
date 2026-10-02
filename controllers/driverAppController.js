@@ -370,8 +370,8 @@ exports.getPassengerManifest = async (req, res, next) => {
     const bookings = await Booking.findAll({
       where: whereBooking,
       include: [
-        { model: Stop, as: 'origin_stop', attributes: ['id', 'stop_name', 'city'] },
-        { model: Stop, as: 'destination_stop', attributes: ['id', 'stop_name', 'city'] },
+        { model: Stop, as: 'origin_stop', attributes: ['id', 'stop_name'] },
+        { model: Stop, as: 'destination_stop', attributes: ['id', 'stop_name'] },
       ],
       order: [['id', 'ASC']],
     });
@@ -689,8 +689,26 @@ exports.manualVerifyBoarding = async (req, res, next) => {
 exports.updateLocation = async (req, res, next) => {
   try {
     const { latitude, longitude, speed, heading, trip_id } = req.body;
-    if (!latitude || !longitude) {
+    const parsedLatitude = Number(latitude);
+    const parsedLongitude = Number(longitude);
+    if (latitude == null || longitude == null || latitude === '' || longitude === ''
+      || !Number.isFinite(parsedLatitude) || !Number.isFinite(parsedLongitude)
+      || Math.abs(parsedLatitude) > 90 || Math.abs(parsedLongitude) > 180) {
       return res.status(400).json({ status: 400, success: false, message: 'Latitude and Longitude are required' });
+    }
+
+    const parsedSpeed = speed == null || speed === '' ? null : Number(speed);
+    const parsedHeading = heading == null || heading === '' ? null : Number(heading);
+    if ((parsedSpeed !== null && (!Number.isFinite(parsedSpeed) || parsedSpeed < 0))
+      || (parsedHeading !== null && (!Number.isFinite(parsedHeading) || parsedHeading < 0 || parsedHeading >= 360))) {
+      return res.status(400).json({ status: 400, success: false, message: 'Speed or heading is invalid' });
+    }
+
+    if (trip_id) {
+      const assignedTrip = await Trip.findOne({ where: { id: trip_id, driver_id: req.driver.id } });
+      if (!assignedTrip) {
+        return res.status(403).json({ status: 403, success: false, message: 'Trip is not assigned to this driver' });
+      }
     }
 
     const driverId = req.driver.id;
@@ -698,14 +716,20 @@ exports.updateLocation = async (req, res, next) => {
 
     if (detail) {
       await detail.update({
-        latitude: parseFloat(latitude),
-        longitude: parseFloat(longitude),
+        latitude: parsedLatitude,
+        longitude: parsedLongitude,
+        location_speed_kmh: parsedSpeed,
+        location_heading: parsedHeading,
+        location_trip_id: trip_id || null,
       });
     } else {
       await DriverDetail.create({
         driver_id: driverId,
-        latitude: parseFloat(latitude),
-        longitude: parseFloat(longitude),
+        latitude: parsedLatitude,
+        longitude: parsedLongitude,
+        location_speed_kmh: parsedSpeed,
+        location_heading: parsedHeading,
+        location_trip_id: trip_id || null,
       });
     }
 
@@ -715,10 +739,11 @@ exports.updateLocation = async (req, res, next) => {
       message: 'Location updated successfully',
       data: {
         driver_id: driverId,
-        latitude,
-        longitude,
-        speed: speed || 0,
-        heading: heading || 0,
+        latitude: parsedLatitude,
+        longitude: parsedLongitude,
+        speed: parsedSpeed,
+        heading: parsedHeading,
+        trip_id: trip_id || null,
         updated_at: new Date(),
       },
     });

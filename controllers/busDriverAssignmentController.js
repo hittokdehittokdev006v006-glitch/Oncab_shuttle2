@@ -25,7 +25,7 @@ const parseAssignmentDate = (value) => {
 const getEligibleDriver = async (driverId) => {
   const driver = await Driver.findByPk(driverId);
   if (!driver) return { error: [404, 'Driver not found'] };
-  if (Number(driver.vehicle_type_id) !== 6 || !driver.is_bus_driver) {
+  if (!driver.is_bus_driver) {
     return { error: [403, 'This account is not registered as a bus driver'] };
   }
   if (!driver.preferred_bus_type_id) return { error: [403, 'A preferred bus type is required'] };
