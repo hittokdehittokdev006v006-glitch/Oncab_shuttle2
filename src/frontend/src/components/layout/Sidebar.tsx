@@ -12,6 +12,7 @@ export type View =
   | 'dashboard' | 'users' | 'roles' | 'drivers' | 'vehicles' | 'vehicle-docs'
   | 'routes' | 'stops' | 'trips' | 'scheduled-trips'
   | 'locations'
+  | 'rate-charts'
   | 'passengers' | 'bookings' | 'passes' | 'cancelled-tickets' | 'refunds'
   | 'failed-refunds' | 'paid-refunds' | 'payments' | 'notifications'
   | 'coupons' | 'reports' | 'audit-logs' | 'settings';
@@ -59,6 +60,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'trips', label: 'Trips', icon: Bus, permission: 'trips.read' },
       { id: 'scheduled-trips', label: 'Scheduled Trips', icon: CalendarDays, permission: 'schedules.read' },
       { id: 'locations', label: 'Location', icon: MapPin, permission: 'locations.read' },
+      { id: 'rate-charts', label: 'Rate Charts', icon: CreditCard, permission: 'rates.read' },
     ]
   },
   {
