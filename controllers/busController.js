@@ -618,7 +618,6 @@ exports.cancelUserBooking = async (req, res, next) => {
     await booking.update(
       {
         booking_status: 'cancelled',
-        payment_status: booking.payment_status === 'paid' ? 'refunded' : booking.payment_status,
         status: 'Cancelled',
         cancellation_reason: cancellation_reason || 'Cancelled by user',
         cancelled_at: new Date(),
@@ -630,6 +629,23 @@ exports.cancelUserBooking = async (req, res, next) => {
     const trip = await Trip.findByPk(booking.trip_id, { transaction: t });
     if (trip) {
       await trip.decrement('booked_seats', { by: booking.total_seats, transaction: t });
+    }
+
+    if (booking.payment_status === 'paid') {
+      const payment = await Payment.findOne({
+        where: { booking_id: booking.id, status: ['captured', 'partial_refund'] },
+        order: [['created_at', 'DESC']],
+        transaction: t,
+      });
+      await Refund.create({
+        booking_id: booking.id,
+        payment_id: payment?.id || null,
+        passenger_id: booking.passenger_id,
+        refund_reference: `REF-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        refund_amount: booking.final_amount,
+        refund_reason: cancellation_reason || 'Cancelled by user',
+        status: 'pending',
+      }, { transaction: t });
     }
 
     await t.commit();

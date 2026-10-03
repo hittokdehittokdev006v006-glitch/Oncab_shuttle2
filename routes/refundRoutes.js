@@ -10,6 +10,7 @@ router.get('/failed', requirePermission('refunds.read'), refundController.failed
 router.get('/completed', requirePermission('refunds.read'), refundController.completedList);
 router.get('/', requirePermission('refunds.read'), refundController.list);
 router.patch('/:id/process', requirePermission('refunds.process'), refundController.process);
+router.patch('/:id/verify-payu', requirePermission('refunds.process'), refundController.verifyPayU);
 router.patch('/:id/retry', requirePermission('refunds.process'), refundController.retry);
 router.patch('/:id/mark-failed', requirePermission('refunds.process'), refundController.markFailed);
 module.exports = router;

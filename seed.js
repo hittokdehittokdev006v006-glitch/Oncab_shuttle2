@@ -187,7 +187,7 @@ const seedDatabase = async () => {
       { key: 'cancellation_fee_percentage', value: '10', group: 'booking' },
       { key: 'allow_cancellation_hours', value: '2', group: 'booking' },
       { key: 'max_advance_booking_days', value: '30', group: 'booking' },
-      { key: 'razorpay_key_id', value: 'rzp_test_sampleKey123', group: 'payment' },
+      { key: 'payment_gateway', value: 'payu', group: 'payment' },
       { key: 'sms_gateway_enabled', value: 'true', group: 'notifications' },
       { key: 'email_alerts_enabled', value: 'true', group: 'notifications' },
     ];

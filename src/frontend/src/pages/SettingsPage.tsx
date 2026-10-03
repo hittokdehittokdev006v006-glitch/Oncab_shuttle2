@@ -19,8 +19,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNotify }) => {
     currency_symbol: '₹',
     cancellation_fee_percentage: '10',
     allow_cancellation_hours: '2',
-    razorpay_key_id: 'rzp_test_sampleKey123',
-    razorpay_secret: '••••••••••••••••••••',
     sms_gateway_enabled: 'true',
     email_alerts_enabled: 'true',
     max_advance_booking_days: '30',
@@ -33,7 +31,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNotify }) => {
       if (resp.data.data && Array.isArray(resp.data.data)) {
         const map: Record<string, string> = {};
         resp.data.data.forEach((s: any) => {
-          map[s.key] = s.value;
+          if (!['razorpay_key_id', 'razorpay_secret'].includes(s.key)) map[s.key] = s.value;
         });
         setSettings((prev) => ({ ...prev, ...map }));
       }
@@ -56,7 +54,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNotify }) => {
     e.preventDefault();
     setSaving(true);
     try {
-      const payload = Object.entries(settings).map(([key, value]) => ({ key, value }));
+      const payload = Object.entries(settings)
+        .filter(([key]) => !['razorpay_key_id', 'razorpay_secret'].includes(key))
+        .map(([key, value]) => ({ key, value }));
       await settingsAPI.bulkUpdate(payload);
       onNotify('Settings saved successfully!');
     } catch (err: any) {
@@ -163,19 +163,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNotify }) => {
 
           {activeTab === 'payment' && (
             <div className="space-y-4">
-              <h3 className="text-base font-semibold text-white">Razorpay API Integration</h3>
-              <div className="space-y-4">
-                <Input
-                  label="Razorpay Key ID"
-                  value={settings.razorpay_key_id}
-                  onChange={(e) => handleChange('razorpay_key_id', e.target.value)}
-                />
-                <Input
-                  label="Razorpay Secret"
-                  type="password"
-                  value={settings.razorpay_secret}
-                  onChange={(e) => handleChange('razorpay_secret', e.target.value)}
-                />
+              <h3 className="text-base font-semibold text-white">PayU Hosted Checkout</h3>
+              <p className="text-sm text-slate-400">PayU merchant credentials are configured on the server and must never be stored or exposed in browser settings.</p>
+              <div className="rounded-lg border border-slate-700 bg-slate-900/60 p-4 text-sm text-slate-300">
+                Set <code>PAYU_KEY</code>, <code>PAYU_SALT</code>, and the PayU checkout/API URLs in the server environment. Use PayU test endpoints until the merchant account is enabled for production.
               </div>
             </div>
           )}

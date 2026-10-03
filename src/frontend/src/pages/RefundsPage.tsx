@@ -17,6 +17,7 @@ export const RefundsPage: React.FC<RefundsPageProps> = ({ onNotify }) => {
   const [pagination, setPagination] = useState({ total: 0, pages: 1, limit: 15 });
   const [retryTarget, setRetryTarget] = useState<any>(null);
   const [retrying, setRetrying] = useState(false);
+  const [processingId, setProcessingId] = useState<number | null>(null);
 
   const fetchRefunds = useCallback(async () => {
     try {
@@ -50,13 +51,40 @@ export const RefundsPage: React.FC<RefundsPageProps> = ({ onNotify }) => {
     setRetrying(true);
     try {
       await refundsAPI.retry(retryTarget.id);
-      onNotify('Refund re-queued for processing');
+      await refundsAPI.process(retryTarget.id, {});
+      onNotify('Refund retry submitted to gateway');
       setRetryTarget(null);
       fetchRefunds();
     } catch (err: any) {
       onNotify(err.response?.data?.message || 'Retry failed', 'error');
     } finally {
       setRetrying(false);
+    }
+  };
+
+  const handleProcessPayU = async (refund: any) => {
+    setProcessingId(refund.id);
+    try {
+      const response = await refundsAPI.process(refund.id, {});
+      onNotify(response.data.message || 'Refund submitted to PayU');
+      await fetchRefunds();
+    } catch (err: any) {
+      onNotify(err.response?.data?.message || 'Unable to initiate PayU refund', 'error');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const handleVerifyPayU = async (refund: any) => {
+    setProcessingId(refund.id);
+    try {
+      const response = await refundsAPI.verifyPayU(refund.id);
+      onNotify(response.data.message || 'PayU refund status refreshed');
+      await fetchRefunds();
+    } catch (err: any) {
+      onNotify(err.response?.data?.message || 'Unable to verify PayU refund', 'error');
+    } finally {
+      setProcessingId(null);
     }
   };
 
@@ -138,7 +166,7 @@ export const RefundsPage: React.FC<RefundsPageProps> = ({ onNotify }) => {
                     {r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}
                   </Td>
                   <Td>
-                    {r.refund_status === 'failed' && (
+                    {r.status === 'failed' && (
                       <Button
                         size="sm"
                         variant="secondary"
@@ -146,6 +174,16 @@ export const RefundsPage: React.FC<RefundsPageProps> = ({ onNotify }) => {
                         icon={RefreshCcw}
                       >
                         Retry
+                      </Button>
+                    )}
+                    {r.status === 'pending' && r.payment?.payment_gateway === 'payu' && (
+                      <Button size="sm" variant="secondary" loading={processingId === r.id} onClick={() => handleProcessPayU(r)}>
+                        Refund via PayU
+                      </Button>
+                    )}
+                    {r.status === 'processing' && r.refund_method === 'payu' && (
+                      <Button size="sm" variant="secondary" loading={processingId === r.id} onClick={() => handleVerifyPayU(r)}>
+                        Verify PayU
                       </Button>
                     )}
                   </Td>

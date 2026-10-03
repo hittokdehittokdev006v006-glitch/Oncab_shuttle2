@@ -329,9 +329,12 @@ export interface Notification {
 // ── payments_transaction ──
 export interface PaymentTransaction {
   id: number;
-  razorpay_payment_id: string | null;
-  razorpay_order_id: string | null;
-  razorpay_signature: string | null;
+  payment_gateway: string | null;
+  payu_txnid: string | null;
+  payu_mihpayid: string | null;
+  razorpay_payment_id?: string | null;
+  razorpay_order_id?: string | null;
+  razorpay_signature?: string | null;
   amount: number;
   currency: string;
   status: string;

@@ -161,6 +161,7 @@ export const refundsAPI = {
   failed: (params?: object) => api.get('/refunds/failed', { params }),
   completed: (params?: object) => api.get('/refunds/completed', { params }),
   process: (id: number, data: object) => api.patch(`/refunds/${id}/process`, data),
+  verifyPayU: (id: number) => api.patch(`/refunds/${id}/verify-payu`),
   retry: (id: number) => api.patch(`/refunds/${id}/retry`),
   markFailed: (id: number, reason: string) => api.patch(`/refunds/${id}/mark-failed`, { failure_reason: reason }),
 };

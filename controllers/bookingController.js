@@ -106,15 +106,16 @@ exports.cancel = async (req, res, next) => {
     if (booking.booking_status === 'cancelled') { await t.rollback(); return res.status(400).json({ success: false, message: 'Booking already cancelled' }); }
 
     const { cancellation_reason } = req.body;
-    await booking.update({ booking_status: 'cancelled', payment_status: booking.payment_status === 'paid' ? 'refunded' : booking.payment_status, status: 'Cancelled', cancellation_reason, cancelled_at: new Date(), cancelled_by: req.user?.id }, { transaction: t });
+    await booking.update({ booking_status: 'cancelled', status: 'Cancelled', cancellation_reason, cancelled_at: new Date(), cancelled_by: req.user?.id }, { transaction: t });
 
     const trip = await Trip.findByPk(booking.trip_id, { transaction: t });
     if (trip) await trip.decrement('booked_seats', { by: booking.total_seats, transaction: t });
 
     // Auto-create refund if payment was captured
     if (booking.payment_status === 'paid') {
+      const payment = await Payment.findOne({ where: { booking_id: booking.id, status: ['captured', 'partial_refund'] }, order: [['created_at', 'DESC']], transaction: t });
       const refund_reference = `REF-${Date.now()}`;
-      await Refund.create({ booking_id: booking.id, passenger_id: booking.passenger_id, refund_reference, refund_amount: booking.final_amount, refund_reason: cancellation_reason || 'Cancelled by admin', status: 'pending', initiated_by: req.user?.id }, { transaction: t });
+      await Refund.create({ booking_id: booking.id, payment_id: payment?.id || null, passenger_id: booking.passenger_id, refund_reference, refund_amount: booking.final_amount, refund_reason: cancellation_reason || 'Cancelled by admin', status: 'pending', initiated_by: req.user?.id }, { transaction: t });
     }
 
     await t.commit();
@@ -133,7 +134,7 @@ exports.cancelledList = async (req, res, next) => {
     const where = { booking_status: 'cancelled' };
     if (search) where[Op.or] = [{ booking_reference: { [Op.like]: `%${search}%` } }, { passenger_name: { [Op.like]: `%${search}%` } }];
 
-    const { count, rows } = await Booking.findAndCountAll({ where, include: BOOKING_INCLUDE, offset, limit: lim, order: [['cancelled_at', 'DESC']] });
+    const { count, rows } = await Booking.findAndCountAll({ where, include: [...BOOKING_INCLUDE, { model: Refund, as: 'refunds', attributes: ['id', 'status', 'refund_amount', 'refund_reference', 'refund_method'], separate: true, order: [['created_at', 'DESC']] }], offset, limit: lim, order: [['cancelled_at', 'DESC']] });
     res.json({ success: true, data: rows, pagination: { total: count, page: p, limit: lim, pages: Math.ceil(count / lim) } });
   } catch (err) {
     next(err);

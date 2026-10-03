@@ -29,8 +29,8 @@ export const CancelledTicketsRefundPage: React.FC<CancelledTicketsRefundPageProp
     if (!refundModal) return;
     setProcessing(true);
     try {
-      await refundsAPI.process(refundModal.refundId, { notes: refundNote });
-      onNotify('Refund processed');
+      const response = await refundsAPI.process(refundModal.refundId, { notes: refundNote });
+      onNotify(response.data.message || 'Refund submitted');
       setRefundModal(null);
       setRefundNote('');
       fetch();
@@ -59,8 +59,11 @@ export const CancelledTicketsRefundPage: React.FC<CancelledTicketsRefundPageProp
                   <Td className="text-sm font-semibold" style={{ color: '#f59e0b' }}>₹{b.final_amount}</Td>
                   <Td><StatusBadge status={b.payment_status} /></Td>
                   <Td>
-                    {b.payment_status === 'paid' && (
-                      <Button variant="secondary" size="sm" onClick={() => setRefundModal({ booking: b, refundId: b.id })}>
+                    {b.payment_status === 'paid' && b.refunds?.some((refund: any) => ['pending', 'failed'].includes(refund.status)) && (
+                      <Button variant="secondary" size="sm" onClick={() => {
+                        const refund = b.refunds.find((item: any) => ['pending', 'failed'].includes(item.status));
+                        if (refund) setRefundModal({ booking: b, refundId: refund.id });
+                      }}>
                         <RefreshCw size={12} /> Refund
                       </Button>
                     )}
