@@ -766,11 +766,15 @@ exports.createBooking = async (req, res, next) => {
     await trip.increment('booked_seats', { by: numSeats, transaction: t });
 
     await t.commit();
+    const bookingData = booking.toJSON();
     res.status(201).json({
       status: 201,
       success: true,
       message: 'Booking created successfully',
-      data: booking
+      data: {
+        booking_id: booking.id,
+        ...bookingData
+      }
     });
   } catch (err) {
     await t.rollback();

@@ -89,7 +89,8 @@ exports.create = async (req, res, next) => {
 
     await t.commit();
     const created = await Booking.findByPk(booking.id, { include: BOOKING_INCLUDE });
-    res.status(201).json({ success: true, message: 'Booking confirmed', data: created });
+    const createdData = created.toJSON();
+    res.status(201).json({ success: true, message: 'Booking confirmed', data: { booking_id: created.id, ...createdData } });
   } catch (err) {
     await t.rollback();
     next(err);
