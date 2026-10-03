@@ -45,7 +45,7 @@ export const PaymentsPage: React.FC<PaymentsPageProps> = ({ onNotify }) => {
     setPage(1);
   }, [search, statusFilter, gatewayFilter]);
 
-  const totalAmount = payments.reduce((sum, p) => p.payment_status === 'paid' ? sum + Number(p.amount || 0) : sum, 0);
+  const totalAmount = payments.reduce((sum, p) => ['captured', 'refunded', 'partial_refund'].includes(p.status) ? sum + Number(p.amount || 0) : sum, 0);
 
   const HEADERS = ['Transaction ID', 'Booking Ref', 'Passenger', 'Amount', 'Gateway', 'Payment Method', 'Status', 'Date'];
 
@@ -84,7 +84,7 @@ export const PaymentsPage: React.FC<PaymentsPageProps> = ({ onNotify }) => {
           </div>
           <div>
             <div className="text-slate-400 text-xs uppercase font-medium">Gateway Integrations</div>
-            <div className="text-xl font-bold text-white">Razorpay / Stripe / Cash</div>
+            <div className="text-xl font-bold text-white">PayU / Cash</div>
           </div>
         </div>
       </div>
@@ -110,8 +110,7 @@ export const PaymentsPage: React.FC<PaymentsPageProps> = ({ onNotify }) => {
           value={gatewayFilter}
           onChange={setGatewayFilter}
           options={[
-            { value: 'razorpay', label: 'Razorpay' },
-            { value: 'stripe', label: 'Stripe' },
+            { value: 'payu', label: 'PayU' },
             { value: 'wallet', label: 'Wallet' },
             { value: 'cash', label: 'Cash / Offline' },
           ]}
@@ -134,7 +133,7 @@ export const PaymentsPage: React.FC<PaymentsPageProps> = ({ onNotify }) => {
                 <Tr key={p.id}>
                   <Td>
                     <div className="text-white text-sm font-mono font-medium">
-                      {p.transaction_id || p.payment_reference || `TXN-${p.id}`}
+                      {p.payu_txnid || p.transaction_id || p.payment_reference || `TXN-${p.id}`}
                     </div>
                   </Td>
                   <Td>

@@ -3,6 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const busController = require('../controllers/busController');
+const payuController = require('../controllers/payuController');
 
 // ── Public Bus APIs (No Authentication Required) ───────────
 // These are for user-facing mobile app
@@ -42,5 +43,9 @@ router.post('/booking-details', busController.getBookingDetails);
 // Create / Book Ticket
 router.post('/create-booking', busController.createBooking);
 router.post('/book-ticket', busController.createBooking);
+
+// PayU checkout and signed hosted-checkout callback
+router.post('/payment/payu/initiate', payuController.initiate);
+router.post('/payment/payu-callback', payuController.callback);
 
 module.exports = router;

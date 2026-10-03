@@ -1,0 +1,151 @@
+'use strict';
+
+const { Booking, Payment } = require('../models');
+const sequelize = require('../config/database');
+const { getPayUConfig, paymentHash, responseHash, secureCompare } = require('../utils/payu');
+
+const makeTxnId = () => `OC${Date.now()}${Math.floor(Math.random() * 100000).toString().padStart(5, '0')}`;
+const normalizeAmount = (amount) => Number(amount).toFixed(2);
+
+const redirectToResult = (res, payment, status) => {
+  const target = process.env.PAYU_RETURN_URL;
+  if (target) {
+    const url = new URL(target);
+    url.searchParams.set('payment_status', status);
+    if (payment?.payu_txnid) url.searchParams.set('txnid', payment.payu_txnid);
+    if (payment?.booking_id) url.searchParams.set('booking_id', payment.booking_id);
+    return res.redirect(303, url.toString());
+  }
+  return res.status(status === 'success' ? 200 : 400).json({
+    success: status === 'success',
+    message: status === 'success' ? 'Payment successful' : 'Payment was not completed',
+    data: payment ? { booking_id: payment.booking_id, txnid: payment.payu_txnid, status: payment.status } : undefined,
+  });
+};
+
+exports.initiate = async (req, res, next) => {
+  try {
+    const { booking_id, passenger_mobile } = req.body || {};
+    if (!booking_id || !passenger_mobile) {
+      return res.status(400).json({ success: false, message: 'booking_id and passenger_mobile are required' });
+    }
+    const booking = await Booking.findOne({ where: { id: booking_id, passenger_mobile } });
+    if (!booking) return res.status(404).json({ success: false, message: 'Booking not found for this passenger' });
+    if (booking.booking_status === 'cancelled') return res.status(409).json({ success: false, message: 'Cancelled booking cannot be paid' });
+    if (booking.payment_status === 'paid') return res.status(409).json({ success: false, message: 'Booking is already paid' });
+
+    const amount = normalizeAmount(booking.final_amount);
+    if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) {
+      return res.status(400).json({ success: false, message: 'Booking amount must be greater than zero' });
+    }
+
+    const config = getPayUConfig();
+    const txnid = makeTxnId();
+    const firstname = String(booking.passenger_name || 'Passenger').trim().slice(0, 60);
+    const email = booking.passenger_email || 'noemail@oncabshuttle.com';
+    const productinfo = `Booking ${booking.booking_reference}`.slice(0, 100);
+    const callbackUrl = process.env.PAYU_CALLBACK_URL || `${req.protocol}://${req.get('host')}/api2/bus/payment/payu-callback`;
+    const payment = await Payment.create({
+      booking_id: booking.id,
+      passenger_id: booking.passenger_id,
+      amount,
+      currency: 'INR',
+      payment_method: 'payu',
+      payment_gateway: 'payu',
+      status: 'pending',
+      payu_txnid: txnid,
+      event: 'checkout_initiated',
+      payload: { booking_reference: booking.booking_reference },
+    });
+
+    const fields = {
+      key: config.key,
+      txnid,
+      amount,
+      productinfo,
+      firstname,
+      email,
+      phone: booking.passenger_mobile,
+      surl: callbackUrl,
+      furl: callbackUrl,
+      udf1: String(booking.id),
+      udf2: '', udf3: '', udf4: '', udf5: '',
+    };
+    fields.hash = paymentHash({ ...fields, salt: config.salt });
+    res.json({
+      success: true,
+      message: 'PayU checkout initialized',
+      data: { action: config.checkoutUrl, method: 'POST', fields },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.callback = async (req, res, next) => {
+  let transaction;
+  try {
+    transaction = await sequelize.transaction();
+    const body = req.body || {};
+    const txnid = String(body.txnid || '');
+    const payment = txnid ? await Payment.findOne({ where: { payu_txnid: txnid }, transaction, lock: transaction.LOCK.UPDATE }) : null;
+    if (!payment) {
+      await transaction.rollback();
+      return res.status(404).json({ success: false, message: 'PayU transaction not found' });
+    }
+
+    const config = getPayUConfig();
+    if (String(body.key || '') !== config.key) {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: 'Invalid PayU merchant key' });
+    }
+    const expectedHash = responseHash(body, config.salt);
+    if (!secureCompare(String(body.hash || '').toLowerCase(), expectedHash.toLowerCase())) {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: 'Invalid PayU response signature' });
+    }
+
+    if (normalizeAmount(body.amount) !== normalizeAmount(payment.amount)) {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: 'PayU amount does not match booking amount' });
+    }
+    if (String(body.udf1 || '') !== String(payment.booking_id)) {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: 'PayU booking reference does not match the transaction' });
+    }
+
+    if (payment.status === 'captured') {
+      await transaction.commit();
+      return redirectToResult(res, payment, 'success');
+    }
+
+    const succeeded = String(body.status || '').toLowerCase() === 'success';
+    if (succeeded && !body.mihpayid) {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: 'PayU success response is missing mihpayid' });
+    }
+    const booking = await Booking.findByPk(payment.booking_id, { transaction, lock: transaction.LOCK.UPDATE });
+    await payment.update({
+      status: succeeded ? 'captured' : 'failed',
+      payment_method: body.mode || 'payu',
+      payu_mihpayid: body.mihpayid || null,
+      event: succeeded ? 'payment_captured' : 'payment_failed',
+      gateway_response: body,
+      payload: { ...(payment.payload || {}), payu_status: body.status },
+    }, { transaction });
+
+    if (booking) {
+      await booking.update({
+        payment_status: succeeded ? 'paid' : 'failed',
+        payment_method: 'payu',
+        transaction_id: txnid,
+      }, { transaction });
+    }
+    await transaction.commit();
+    return redirectToResult(res, payment, succeeded ? 'success' : 'failed');
+  } catch (err) {
+    if (transaction && !transaction.finished) await transaction.rollback();
+    next(err);
+  }
+};
+

@@ -11,10 +11,11 @@ const buildPagination = (page, limit) => {
 
 exports.list = async (req, res, next) => {
   try {
-    const { page, limit, status, from_date, to_date } = req.query;
+    const { page, limit, status, payment_gateway, from_date, to_date } = req.query;
     const { offset, limit: lim, page: p } = buildPagination(page, limit);
     const where = {};
     if (status) where.status = status;
+    if (payment_gateway) where.payment_gateway = payment_gateway;
     if (from_date && to_date) where.created_at = { [Op.between]: [new Date(from_date), new Date(to_date + ' 23:59:59')] };
 
     const { count, rows } = await Payment.findAndCountAll({
